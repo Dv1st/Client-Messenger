@@ -328,7 +328,7 @@ function handleLogout(ws, tokenId, isDisconnect = false) {
 // ============================================================================
 // 💬 Сообщения
 // ============================================================================
-function handleMessage(ws, sender, { text, privateTo, timestamp, encrypted, hint }) {
+function handleMessage(ws, sender, { text, privateTo, timestamp, encrypted, hint, replyTo }) {
     if (!text || typeof text !== 'string') {
         return ws.send(JSON.stringify({ type: 'error', message: 'Неверное сообщение' }));
     }
@@ -364,7 +364,8 @@ function handleMessage(ws, sender, { text, privateTo, timestamp, encrypted, hint
         text: trimmedText,
         timestamp: timestamp || Date.now(),
         encrypted: encrypted || false,
-        hint: hint || null
+        hint: hint || null,
+        replyTo: replyTo || null
     };
 
     if (privateTo && typeof privateTo === 'string') {
@@ -382,7 +383,7 @@ function handleMessage(ws, sender, { text, privateTo, timestamp, encrypted, hint
                 }
             }
         }
-        
+
         // ✨ ИЗМЕНЕНО: Отправляем подтверждение доставки отправителю
         ws.send(JSON.stringify({
             type: 'message_confirmed',
@@ -430,6 +431,37 @@ function handleMessageRead(ws, sender, { from, timestamp }) {
             }));
         }
     }
+}
+
+// ✨ ИЗМЕНЕНО: Обработка удаления сообщения
+function handleDeleteMessage(ws, sender, { timestamp, chatWith }) {
+    if (!timestamp) {
+        return ws.send(JSON.stringify({ type: 'error', message: 'Неверный timestamp' }));
+    }
+
+    // Рассылаем всем пользователям в чате сообщение об удалении
+    const deleteMessage = {
+        type: 'message_deleted',
+        timestamp: timestamp,
+        deletedBy: sender
+    };
+
+    if (chatWith) {
+        // Приватное сообщение - отправляем собеседнику
+        const recipient = users.get(chatWith);
+        if (recipient) {
+            for (const [_, device] of recipient.devices.entries()) {
+                if (device.ws?.readyState === WebSocket.OPEN) {
+                    device.ws.send(JSON.stringify(deleteMessage));
+                }
+            }
+        }
+    } else {
+        // Общее сообщение - рассылаем всем кроме отправителя
+        broadcast(deleteMessage, ws);
+    }
+
+    console.log(`🗑️ Message deleted by ${sender}: ${timestamp}`);
 }
 
 function handleUpdateVisibility(ws, username, { isVisible }) {
@@ -538,6 +570,10 @@ wss.on('connection', (ws, req) => {
             // ✨ ИЗМЕНЕНО: Обработка подтверждения прочтения
             case 'message_read':
                 if (session) handleMessageRead(ws, username, data);
+                break;
+            // ✨ ИЗМЕНЕНО: Обработка удаления сообщения
+            case 'delete_message':
+                if (session) handleDeleteMessage(ws, username, data);
                 break;
             // ✨ ИЗМЕНЕНО: Обработка открытия чата
             case 'chat_open':
