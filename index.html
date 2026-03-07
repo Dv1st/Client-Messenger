@@ -88,6 +88,12 @@
 
                 <!-- 4. Список пользователей (только с visibility: true) -->
                 <div class="users-section">
+                    <div class="section-header users-section-header">
+                        <span class="section-title">👥 Пользователи</span>
+                        <button class="collapse-section-btn" id="collapseUsersBtn" type="button" title="Свернуть/Развернуть" aria-label="Свернуть список пользователей">
+                            <span class="collapse-icon">▼</span>
+                        </button>
+                    </div>
                     <div class="users-list" id="usersList" role="list" aria-label="Список пользователей"></div>
                 </div>
 
@@ -181,7 +187,7 @@
                         </select>
                     </div>
                     <div class="setting-item">
-                        <label for="accentColorSelect">Основной цвет</label>
+                        <label for="accentColorSelect">Основной цвет интерфейса</label>
                         <select id="accentColorSelect">
                             <option value="#7B2CBF">🟣 Фиолетовый</option>
                             <option value="#2563EB">🔵 Синий</option>
@@ -191,6 +197,21 @@
                             <option value="#DB2777">🩷 Розовый</option>
                             <option value="#0891B2">🌊 Бирюзовый</option>
                             <option value="#7C3AED">💜 Индиго</option>
+                        </select>
+                    </div>
+                    <div class="setting-item">
+                        <label for="messageColorSelect">Цвет своих сообщений</label>
+                        <select id="messageColorSelect">
+                            <option value="#7B2CBF">🟣 Фиолетовый</option>
+                            <option value="#2563EB">🔵 Синий</option>
+                            <option value="#059669">🟢 Зелёный</option>
+                            <option value="#DC2626">🔴 Красный</option>
+                            <option value="#EA580C">🟠 Оранжевый</option>
+                            <option value="#DB2777">🩷 Розовый</option>
+                            <option value="#0891B2">🌊 Бирюзовый</option>
+                            <option value="#7C3AED">💜 Индиго</option>
+                            <option value="#6B7280">⚫ Серый</option>
+                            <option value="#000000">⬛ Чёрный</option>
                         </select>
                     </div>
                     <div class="setting-item">
