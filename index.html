@@ -55,17 +55,23 @@
         <div class="chat-container">
             <!-- Левая панель -->
             <div class="sidebar">
-                <!-- Папки -->
+                <!-- ✨ ИЗМЕНЕНО: Заголовки разделов -->
                 <div class="chat-folders">
-                    <button class="folder-btn active" data-folder="all">Все</button>
-                    <button class="folder-btn" data-folder="personal">Личное</button>
-                    <button class="folder-btn" data-folder="work">Работа</button>
+                    <button class="folder-btn active" data-folder="all">📋 Список пользователей</button>
+                </div>
+                
+                <!-- ✨ ИЗМЕНЕНО: Раздел "Чаты" -->
+                <div class="chat-folders" id="activeChatsFolder" style="border-top: 1px solid var(--element-bg); margin-top: 8px; padding-top: 8px;">
+                    <button class="folder-btn" style="font-weight: 600;">💬 Активные чаты</button>
                 </div>
 
                 <!-- Поиск -->
                 <div class="search-box">
                     <input type="text" id="searchBox" placeholder="🔍 Поиск..." aria-label="Поиск пользователей">
                 </div>
+
+                <!-- ✨ ИЗМЕНЕНО: Контейнер для активных чатов -->
+                <div class="active-chats-list" id="activeChatsList" role="list" aria-label="Активные чаты"></div>
 
                 <!-- Список пользователей -->
                 <div class="users-list" id="usersList" role="list" aria-label="Список пользователей"></div>
@@ -172,7 +178,7 @@
                     </div>
                     <div class="setting-item">
                         <label for="showInDirectory">Отображать в списке</label>
-                        <input type="checkbox" id="showInDirectory" checked>
+                        <input type="checkbox" id="showInDirectory"> <!-- ✨ ИЗМЕНЕНО: По умолчанию выключено -->
                     </div>
                 </div>
 
