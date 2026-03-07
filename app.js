@@ -58,6 +58,12 @@ const DOM = {
     statusIndicator: null,
     currentUserLabel: null,
     chatTitle: null,
+    chatUserStatus: null, // ✨ ИЗМЕНЕНО: Статус пользователя в заголовке
+    sidebar: null, // ✨ ИЗМЕНЕНО: Боковая панель
+    sidebarToggle: null, // ✨ ИЗМЕНЕНО: Кнопка переключения sidebar
+    backBtn: null, // ✨ ИЗМЕНЕНО: Кнопка назад
+    scrollToBottomBtn: null, // ✨ ИЗМЕНЕНО: Кнопка прокрутки вниз
+    unreadCount: null, // ✨ ИЗМЕНЕНО: Счётчик непрочитанных
     messageBox: null,
     sendBtn: null,
     encryptCheckBox: null,
@@ -80,7 +86,9 @@ function initDOM() {
     const ids = [
         'loginWindow', 'chatWindow', 'settingsModal', 'searchBox', 'usersList',
         'activeChatsList', 'messagesList', 'inputPanel', 'chatPlaceholder', 'statusIndicator',
-        'currentUserLabel', 'chatTitle', 'messageBox', 'sendBtn', 'encryptCheckBox',
+        'currentUserLabel', 'chatTitle', 'chatUserStatus', 'sidebar', 'sidebarToggle', 'backBtn',
+        'scrollToBottomBtn', 'unreadCount',
+        'messageBox', 'sendBtn', 'encryptCheckBox',
         'encryptKeyBox', 'decryptPanel', 'decryptKeyBox', 'decryptBtn',
         'themeSelect', 'fontSizeSelect', 'showInDirectory', 'soundNotify',
         'pushNotify', 'notificationSound'
@@ -102,6 +110,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initChat();
     initSettings();
     initFolders();
+    initSidebar(); // ✨ ИЗМЕНЕНО: Инициализация sidebar
     loadSavedUsers();
     loadSettings();
     loadFolderSettings();
@@ -302,7 +311,49 @@ function handleServerMessage(data) {
         case 'receive_message':
             handleMessageReceive(data);
             break;
+        // ✨ ИЗМЕНЕНО: Обработка подтверждения доставки сообщения
+        case 'message_confirmed':
+            updateMessageDeliveryStatus(data.timestamp, 'sent');
+            break;
+        // ✨ ИЗМЕНЕНО: Обработка подтверждения прочтения
+        case 'message_read_receipt':
+            updateMessageDeliveryStatus(data.timestamp, 'delivered');
+            break;
     }
+}
+
+// ✨ ИЗМЕНЕНО: Обновление статуса доставки сообщения
+function updateMessageDeliveryStatus(timestamp, status) {
+    if (!DOM.messagesList || !timestamp) return;
+
+    // Находим сообщение по timestamp
+    const messages = DOM.messagesList.querySelectorAll('.message.own');
+    messages.forEach(msg => {
+        if (msg.dataset.timestamp == timestamp) {
+            const checksEl = msg.querySelector('.checks');
+            if (checksEl) {
+                checksEl.className = `checks ${status}`;
+                checksEl.textContent = status === 'sent' ? '✓' : '✓✓';
+                checksEl.title = status === 'sent' ? 'Отправлено' : 'Прочитано';
+            }
+        }
+    });
+
+    // Обновляем в localStorage
+    if (selectedUser) {
+        const messages = loadMessagesFromStorage(selectedUser);
+        const msg = messages.find(m => m.timestamp === timestamp);
+        if (msg) {
+            msg.deliveryStatus = status;
+            localStorage.setItem(`chat_messages_${currentUser}_${selectedUser}`, JSON.stringify(messages));
+        }
+    }
+}
+
+// ✨ ИЗМЕНЕНО: Обработка подтверждения прочтения сообщений
+function handleReadReceipt(data) {
+    console.log(`✅ Сообщение прочитано: ${data.from} в ${data.timestamp}`);
+    // Можно добавить визуальную индикацию в сообщениях
 }
 
 // ============================================================================
@@ -317,12 +368,13 @@ function handleMessageReceive(data) {
         timestamp: data.timestamp,
         encrypted: data.encrypted || false,
         hint: data.hint || null,
-        delivered: false // ✨ ИЗМЕНЕНО: Флаг доставки
+        delivered: false, // ✨ ИЗМЕНЕНО: Флаг доставки
+        deliveryStatus: data.sender === currentUser ? 'sent' : 'delivered' // ✨ ИЗМЕНЕНО: Статус доставки
     };
 
     // ✨ ИЗМЕНЕНО: Сохраняем сообщение для получателя (privateTo) и для отправителя
     const chatName = data.privateTo || 'general';
-    
+
     // Сохраняем сообщение в чат с собеседником (для получателя)
     if (data.privateTo && data.privateTo === currentUser) {
         saveMessageToStorage(data.sender, messageData);
@@ -338,11 +390,23 @@ function handleMessageReceive(data) {
 
     // ✨ ИЗМЕНЕНО: Показываем сообщение только если чат открыт с отправителем ИЛИ это наше отправленное сообщение
     if (selectedUser === data.sender || (data.sender === currentUser && data.privateTo === selectedUser)) {
-        addMessage(messageData);
+        // Проверяем, нужно ли добавлять непрочитанное сообщение
+        const isAdded = addUnreadMessage();
+        if (isAdded) {
+            addMessage(messageData);
+        } else {
+            // Сообщение добавлено в очередь, но не показано
+            addMessage(messageData, false, false); // scrollToBottom = false
+        }
+        
         // ✨ ИЗМЕНЕНО: Отправляем подтверждение прочтения
         if (data.privateTo && data.sender !== currentUser) {
             sendToServer({ type: 'message_read', from: data.sender, timestamp: data.timestamp });
         }
+    } else if (data.privateTo === currentUser) {
+        // ✨ ИЗМЕНЕНО: Сообщение пришло в текущий открытый чат, но от другого пользователя
+        addUnreadMessage();
+        addMessage(messageData, false, false);
     }
 
     if (data.sender !== currentUser) {
@@ -362,6 +426,9 @@ function initChat() {
     // ✨ ИЗМЕНЕНО: По умолчанию ни один чат не открыт
     selectedUser = null;
     
+    // ✨ ИЗМЕНЕНО: Инициализация отслеживания прокрутки
+    initScrollTracking();
+
     if (DOM.sendBtn) DOM.sendBtn.addEventListener('click', sendMessage);
 
     if (DOM.messageBox) {
@@ -409,6 +476,146 @@ function initChat() {
     }
 
     setInputPanelVisible(false);
+}
+
+// ✨ ИЗМЕНЕНО: Инициализация sidebar
+function initSidebar() {
+    if (DOM.sidebarToggle) {
+        DOM.sidebarToggle.addEventListener('click', toggleSidebar);
+    }
+    
+    if (DOM.backBtn) {
+        DOM.backBtn.addEventListener('click', showMobileChatList);
+    }
+    
+    // Загрузка состояния sidebar из localStorage
+    const sidebarCollapsed = localStorage.getItem('sidebar_collapsed');
+    if (sidebarCollapsed === 'true' && window.innerWidth > 768) {
+        DOM.sidebar?.classList.add('collapsed');
+        updateSidebarToggleIcon();
+    }
+    
+    // Проверка мобильного вида
+    checkMobileView();
+}
+
+// ✨ ИЗМЕНЕНО: Инициализация отслеживания прокрутки
+function initScrollTracking() {
+    if (!DOM.messagesList || !DOM.scrollToBottomBtn) return;
+    
+    // Переменные для отслеживания
+    window.unreadMessagesCount = 0;
+    window.isUserAtBottom = true;
+    
+    // Отслеживание прокрутки с debounce для производительности
+    let scrollTimeout = null;
+    DOM.messagesList.addEventListener('scroll', () => {
+        if (scrollTimeout) return;
+        scrollTimeout = setTimeout(() => {
+            checkScrollPosition();
+            scrollTimeout = null;
+        }, 100);
+    }, { passive: true });
+    
+    // Обработчик кнопки
+    DOM.scrollToBottomBtn.addEventListener('click', scrollToBottom);
+}
+
+// ✨ ИЗМЕНЕНО: Проверка позиции прокрутки
+function checkScrollPosition() {
+    if (!DOM.messagesList) return;
+    
+    const threshold = 100;
+    const position = DOM.messagesList.scrollTop + DOM.messagesList.clientHeight;
+    const height = DOM.messagesList.scrollHeight;
+    
+    window.isUserAtBottom = (height - position) < threshold;
+    updateScrollButton();
+}
+
+// ✨ ИЗМЕНЕНО: Обновление кнопки прокрутки
+function updateScrollButton() {
+    if (!DOM.scrollToBottomBtn || !DOM.unreadCount) return;
+    
+    if (window.isUserAtBottom) {
+        DOM.scrollToBottomBtn.classList.add('hidden');
+        window.unreadMessagesCount = 0;
+        DOM.unreadCount.textContent = '0';
+    } else if (window.unreadMessagesCount > 0) {
+        DOM.scrollToBottomBtn.classList.remove('hidden');
+        DOM.unreadCount.textContent = window.unreadMessagesCount > 99 ? '99+' : window.unreadMessagesCount;
+    }
+}
+
+// ✨ ИЗМЕНЕНО: Прокрутка вниз
+function scrollToBottom() {
+    if (!DOM.messagesList) return;
+    
+    DOM.messagesList.scrollTo({
+        top: DOM.messagesList.scrollHeight,
+        behavior: 'smooth'
+    });
+    
+    window.unreadMessagesCount = 0;
+    updateScrollButton();
+}
+
+// ✨ ИЗМЕНЕНО: Добавление непрочитанных сообщений
+function addUnreadMessage() {
+    if (!window.isUserAtBottom) {
+        window.unreadMessagesCount++;
+        updateScrollButton();
+        return false; // Сообщение не показано автоматически
+    }
+    return true; // Сообщение показано автоматически
+}
+
+// ✨ ИЗМЕНЕНО: Переключение sidebar
+function toggleSidebar() {
+    if (!DOM.sidebar) return;
+    
+    DOM.sidebar.classList.toggle('collapsed');
+    localStorage.setItem('sidebar_collapsed', DOM.sidebar.classList.contains('collapsed'));
+    updateSidebarToggleIcon();
+}
+
+// ✨ ИЗМЕНЕНО: Обновление иконки sidebar
+function updateSidebarToggleIcon() {
+    if (!DOM.sidebarToggle) return;
+    
+    const icon = DOM.sidebarToggle.querySelector('.toggle-icon');
+    if (DOM.sidebar?.classList.contains('collapsed')) {
+        icon.textContent = '▶';
+    } else {
+        icon.textContent = '◀';
+    }
+}
+
+// ✨ ИЗМЕНЕНО: Проверка мобильного вида
+function checkMobileView() {
+    if (!DOM.sidebar || !DOM.backBtn) return;
+    
+    const isMobile = window.innerWidth <= 768;
+    const hasSelectedUser = selectedUser !== null;
+    
+    // Определяем нужно ли скрывать sidebar
+    const shouldHideSidebar = isMobile && hasSelectedUser;
+    
+    DOM.sidebar.classList.toggle('mobile-hidden', shouldHideSidebar);
+    DOM.backBtn.classList.toggle('hidden', !shouldHideSidebar);
+}
+
+// ✨ ИЗМЕНЕНО: Показать список чатов на мобильном
+function showMobileChatList() {
+    if (!DOM.sidebar) return;
+    
+    DOM.sidebar.classList.remove('mobile-hidden');
+    if (DOM.backBtn) DOM.backBtn.classList.add('hidden');
+    
+    // На ПК возвращаем к общему виду
+    if (window.innerWidth > 768) {
+        showGeneralChat();
+    }
 }
 
 function setInputPanelVisible(isVisible) {
@@ -471,6 +678,11 @@ function updateUserStatus(username, status, activeChat = null) {
         user.activeChat = activeChat;
         saveUsersToStorage();
         renderUsers();
+        
+        // ✨ ИЗМЕНЕНО: Обновляем статус в заголовке если чат открыт
+        if (selectedUser === username) {
+            updateChatUserStatus(username);
+        }
     }
 }
 
@@ -559,24 +771,24 @@ function renderUsers() {
 // ✨ ИЗМЕНЕНО: Функция рендеринга активных чатов
 function renderActiveChats() {
     if (!DOM.activeChatsList) return;
-    
+
     DOM.activeChatsList.innerHTML = '';
-    
+
     // Находим пользователей с активными чатами
-    const activeChats = users.filter(u => 
-        u.name !== currentUser && 
-        u.activeChat && 
+    const activeChats = users.filter(u =>
+        u.name !== currentUser &&
+        u.activeChat &&
         (u.status === 'online' || u.status === 'in_chat')
     );
-    
+
     if (activeChats.length === 0) {
         DOM.activeChatsList.style.display = 'none';
         return;
     }
-    
+
     DOM.activeChatsList.style.display = 'block';
     const fragment = document.createDocumentFragment();
-    
+
     activeChats.forEach(userObj => {
         const item = document.createElement('div');
         item.className = 'active-chat-item';
@@ -585,46 +797,125 @@ function renderActiveChats() {
             <span class="chat-name">${escapeHtml(userObj.name)}</span>
             <button class="close-chat" title="Закрыть">✕</button>
         `;
-        
+
         const nameEl = item.querySelector('.chat-name');
         const closeBtn = item.querySelector('.close-chat');
-        
+
         if (nameEl) nameEl.addEventListener('click', () => selectUser(userObj.name));
         if (closeBtn) closeBtn.addEventListener('click', (e) => {
             e.stopPropagation();
             showGeneralChat();
         });
         item.addEventListener('click', () => selectUser(userObj.name));
-        
+
         fragment.appendChild(item);
     });
-    
+
     DOM.activeChatsList.appendChild(fragment);
+}
+
+// ✨ ИЗМЕНЕНО: Оптимизация - кэширование selectAll
+const USER_ITEM_SELECTOR = '.user-item';
+
+function updateUserItemSelection(username) {
+    document.querySelectorAll(USER_ITEM_SELECTOR).forEach(item => {
+        if (username) {
+            item.classList.toggle('selected', item.dataset.username === username);
+        } else {
+            item.classList.remove('selected');
+        }
+    });
+}
+
+// ✨ ИЗМЕНЕНО: Обновление статуса пользователя в заголовке чата
+function updateChatUserStatus(username) {
+    if (!DOM.chatUserStatus) return;
+    
+    const user = users.find(u => u.name === username);
+    if (!user) {
+        DOM.chatUserStatus.classList.add('hidden');
+        return;
+    }
+    
+    const statusClass = user.status === 'in_chat' ? 'in-chat' : user.status;
+    const statusLabels = {
+        'online': 'Онлайн',
+        'in-chat': 'В чате',
+        'offline': 'Офлайн'
+    };
+    
+    DOM.chatUserStatus.classList.remove('hidden', 'online', 'offline', 'in-chat');
+    DOM.chatUserStatus.classList.add(statusClass);
+    
+    const statusText = DOM.chatUserStatus.querySelector('.status-text');
+    if (statusText) {
+        statusText.textContent = statusLabels[statusClass] || 'Офлайн';
+    }
 }
 
 function selectUser(username) {
     selectedUser = username;
     if (DOM.chatTitle) DOM.chatTitle.textContent = `💬 ${username}`;
 
-    document.querySelectorAll('.user-item').forEach(item => {
-        item.classList.toggle('selected', item.dataset.username === username);
-    });
+    // ✨ ИЗМЕНЕНО: Оптимизация - используем кэшированную функцию
+    updateUserItemSelection(username);
+    
+    // ✨ ИЗМЕНЕНО: Сбрасываем счётчик непрочитанных при переключении чата
+    window.unreadMessagesCount = 0;
+    window.isUserAtBottom = true;
 
+    // ✨ ИЗМЕНЕНО: Очищаем сообщения перед загрузкой новых
     if (DOM.messagesList) {
         DOM.messagesList.innerHTML = '';
-        loadMessagesFromStorage(username).forEach(msg => addMessage(msg));
+
+        // Загружаем сообщения из localStorage
+        const messages = loadMessagesFromStorage(username);
+        if (messages && messages.length > 0) {
+            const fragment = document.createDocumentFragment();
+            messages.forEach(msg => {
+                const msgEl = createMessageElement(msg, msg.sender === currentUser);
+                if (msgEl) fragment.appendChild(msgEl);
+            });
+            DOM.messagesList.appendChild(fragment);
+            DOM.messagesList.scrollTop = DOM.messagesList.scrollHeight;
+        }
     }
 
     setInputPanelVisible(true);
+
+    // ✨ ИЗМЕНЕНО: Обновляем статус пользователя в заголовке
+    updateChatUserStatus(username);
+
+    // ✨ ИЗМЕНЕНО: Обновляем мобильный вид
+    checkMobileView();
+    
+    // ✨ ИЗМЕНЕНО: Скрываем кнопку прокрутки
+    updateScrollButton();
+
+    // ✨ ИЗМЕНЕНО: Отправляем серверу что открыли чат
+    sendToServer({ type: 'chat_open', chatWith: username });
+
     setTimeout(() => { if (DOM.messageBox) DOM.messageBox.focus(); }, 100);
 }
 
 function showGeneralChat() {
     selectedUser = null;
     if (DOM.chatTitle) DOM.chatTitle.textContent = '💬 Общий чат';
-    document.querySelectorAll('.user-item').forEach(item => item.classList.remove('selected'));
+    
+    // ✨ ИЗМЕНЕНО: Оптимизация - используем кэшированную функцию
+    updateUserItemSelection(null);
+    
     if (DOM.messagesList) DOM.messagesList.innerHTML = '';
-    sendToServer({ type: 'get_users' });
+    
+    // ✨ ИЗМЕНЕНО: Скрываем статус пользователя
+    if (DOM.chatUserStatus) DOM.chatUserStatus.classList.add('hidden');
+    
+    // ✨ ИЗМЕНЕНО: Обновляем мобильный вид
+    checkMobileView();
+
+    // ✨ ИЗМЕНЕНО: Отправляем серверу что закрыли чат
+    sendToServer({ type: 'chat_open', chatWith: null });
+
     setInputPanelVisible(false);
 }
 
@@ -815,12 +1106,15 @@ function sendMessage() {
     };
 
     if (sendToServer(message)) {
+        // ✨ ИЗМЕНЕНО: Добавляем сообщение со статусом 'pending' (ожидает отправки)
         addMessage({
             sender: currentUser,
             text: messageText,
             time,
+            timestamp: Date.now(),
             encrypted: encrypt,
-            hint
+            hint,
+            deliveryStatus: 'pending' // ✨ ИЗМЕНЕНО: Статус доставки
         }, true);
 
         if (selectedUser) {
@@ -830,7 +1124,8 @@ function sendMessage() {
                 time,
                 timestamp: Date.now(),
                 encrypted: encrypt,
-                hint: encrypt ? generateHint(key) : null
+                hint: encrypt ? generateHint(key) : null,
+                deliveryStatus: 'pending' // ✨ ИЗМЕНЕНО: Сохраняем статус
             });
         }
 
@@ -848,23 +1143,32 @@ function sendMessage() {
 // ============================================================================
 // 🔹 Отображение сообщений
 // ============================================================================
-function addMessage(data, isOwn = false) {
-    if (!DOM.messagesList) return;
+
+// ✨ ИЗМЕНЕНО: Создание элемента сообщения (без добавления в DOM)
+function createMessageElement(data, isOwn = false) {
+    if (!data) return null;
 
     const message = document.createElement('div');
     const isCurrentUser = data.sender === currentUser || isOwn;
     message.className = `message ${isCurrentUser ? 'own' : 'other'}`;
+    
+    // ✨ ИЗМЕНЕНО: Сохраняем timestamp для обновления статуса доставки
+    message.dataset.timestamp = data.timestamp;
 
     const displayText = data.encrypted
         ? `🔒 Зашифровано (подсказка: ${escapeHtml(data.hint || '???')})`
         : escapeHtml(data.text);
+
+    // ✨ ИЗМЕНЕНО: Добавляем статус доставки
+    const deliveryStatus = data.deliveryStatus || 'sent'; // 'pending', 'sent', 'delivered', 'read'
+    const checksHtml = isCurrentUser ? getDeliveryStatusHtml(deliveryStatus) : '';
 
     message.innerHTML = `
         ${!isCurrentUser ? `<div class="sender">${escapeHtml(data.sender)}</div>` : ''}
         <div class="text">${displayText}</div>
         <div class="meta">
             <span class="time">${data.time || ''}</span>
-            ${isCurrentUser ? '<span class="checks" title="Доставлено">✓✓</span>' : ''}
+            ${checksHtml}
         </div>
     `;
 
@@ -883,8 +1187,36 @@ function addMessage(data, isOwn = false) {
         });
     }
 
+    return message;
+}
+
+// ✨ ИЗМЕНЕНО: HTML для статуса доставки
+function getDeliveryStatusHtml(status) {
+    switch (status) {
+        case 'pending':
+            return '<span class="checks pending" title="Отправка">⏳</span>';
+        case 'sent':
+            return '<span class="checks sent" title="Отправлено">✓</span>';
+        case 'delivered':
+        case 'read':
+            return '<span class="checks delivered" title="Прочитано">✓✓</span>';
+        default:
+            return '<span class="checks">✓</span>';
+    }
+}
+
+// ✨ ИЗМЕНЕНО: Добавление сообщения в DOM
+function addMessage(data, isOwn = false, scrollToBottom = true) {
+    if (!DOM.messagesList) return;
+
+    const message = createMessageElement(data, isOwn);
+    if (!message) return;
+
     DOM.messagesList.appendChild(message);
-    DOM.messagesList.scrollTop = DOM.messagesList.scrollHeight;
+
+    if (scrollToBottom) {
+        DOM.messagesList.scrollTop = DOM.messagesList.scrollHeight;
+    }
 }
 
 // ============================================================================
@@ -1299,6 +1631,8 @@ document.addEventListener('click', (e) => {
     }
 });
 
+// ✨ ИЗМЕНЕНО: Обработка изменения размера окна
 window.addEventListener('resize', () => {
     if (DOM.messagesList) DOM.messagesList.scrollTop = DOM.messagesList.scrollHeight;
+    checkMobileView(); // Обновляем мобильный вид при изменении размера
 }, { passive: true });
