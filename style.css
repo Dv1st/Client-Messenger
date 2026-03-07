@@ -633,32 +633,27 @@ body.font-large { font-size: 16px; }
     color: white;
 }
 
-/* Индикатор статуса подключения */
-.status-indicator {
-    width: 12px;
-    height: 12px;
-    border-radius: 50%;
-    background: var(--warning);
-    border: 2px solid var(--panel-bg);
+/* ============================================================================
+   🔹 Правая панель
+   ============================================================================ */
+.chat-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: var(--window-bg);
+    overflow: hidden;
+    min-width: 0;
+}
+
+.chat-header {
+    padding: 12px 16px;
+    background: var(--panel-bg);
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    gap: 12px;
     flex-shrink: 0;
-}
-
-.status-indicator.connected {
-    background: var(--success);
-}
-
-.status-indicator.disconnected {
-    background: var(--error);
-}
-
-.status-indicator.reconnecting {
-    background: var(--warning);
-    animation: blink 1s infinite;
-}
-
-@keyframes blink {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.4; }
+    height: var(--header-height);
 }
 
 .chat-header h2 {
@@ -1188,6 +1183,156 @@ body.font-large { font-size: 16px; }
 
 .btn-logout:hover {
     background: var(--error-hover);
+}
+
+/* ============================================================================
+   🔹 Контекстное меню сообщений
+   ============================================================================ */
+.message-context-menu {
+    position: fixed;
+    background: var(--panel-bg);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius-md);
+    padding: 6px 0;
+    box-shadow: 0 4px 20px var(--shadow-color);
+    z-index: 1002;
+    min-width: 180px;
+    animation: contextMenuFadeIn 0.2s ease;
+}
+
+.message-context-menu-item {
+    padding: 10px 16px;
+    cursor: pointer;
+    color: var(--text-primary);
+    font-size: 14px;
+    transition: background var(--transition-fast);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border: none;
+    background: transparent;
+    width: 100%;
+    text-align: left;
+}
+
+.message-context-menu-item:hover {
+    background: var(--element-bg);
+}
+
+.message-context-menu-item.danger {
+    color: var(--error);
+}
+
+.message-context-menu-item.danger:hover {
+    background: rgba(255, 75, 75, 0.1);
+}
+
+.message-context-menu-divider {
+    height: 1px;
+    background: var(--border-color);
+    margin: 6px 0;
+}
+
+/* Подсветка сообщения при наведении */
+.message:hover {
+    box-shadow: 0 4px 12px var(--shadow-color);
+}
+
+/* Сообщение с активным контекстным меню */
+.message.context-menu-active {
+    box-shadow: 0 0 0 2px var(--accent);
+}
+
+/* ============================================================================
+   🔹 Ответ на сообщение
+   ============================================================================ */
+.message-reply {
+    padding: 6px 10px;
+    margin-bottom: 6px;
+    background: rgba(0, 0, 0, 0.15);
+    border-left: 3px solid var(--accent);
+    border-radius: 4px;
+    font-size: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.message.own .message-reply {
+    background: rgba(0, 0, 0, 0.2);
+    border-left-color: var(--text-primary);
+}
+
+.message-reply .reply-sender {
+    font-weight: 600;
+    color: var(--accent);
+    font-size: 11px;
+}
+
+.message.own .message-reply .reply-sender {
+    color: var(--text-primary);
+}
+
+.message-reply .reply-preview {
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ============================================================================
+   🔹 Индикатор ответа
+   ============================================================================ */
+.reply-indicator {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    background: var(--element-bg);
+    border-left: 3px solid var(--accent);
+    border-radius: var(--border-radius-sm);
+    margin: 8px 16px;
+    gap: 10px;
+}
+
+.reply-indicator .reply-text {
+    font-size: 13px;
+    color: var(--text-secondary);
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.reply-indicator .reply-text strong {
+    color: var(--text-primary);
+}
+
+.reply-indicator .reply-cancel {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 16px;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+    transition: all var(--transition-fast);
+    flex-shrink: 0;
+}
+
+.reply-indicator .reply-cancel:hover {
+    background: var(--error);
+    color: white;
+}
+
+/* ============================================================================
+   🔹 Временное уведомление
+   ============================================================================ */
+@keyframes fadeInOut {
+    0% { opacity: 0; transform: translateX(-50%) translateY(10px); }
+    10% { opacity: 1; transform: translateX(-50%) translateY(0); }
+    90% { opacity: 1; transform: translateX(-50%) translateY(0); }
+    100% { opacity: 0; transform: translateX(-50%) translateY(-10px); }
 }
 
 /* ============================================================================
