@@ -495,14 +495,17 @@ function handleDeleteMessage(ws, sender, { timestamp, chatWith }) {
 /**
  * ✨ Обработка реакции на сообщение
  */
-function handleMessageReaction(ws, sender, { timestamp, reaction, add, privateTo }) {
+function handleMessageReaction(ws, sender, { timestamp, reaction, add, privateTo, reactionTimestamp }) {
     if (!timestamp || !reaction) return;
 
-    // Рассылаем реакцию всем в чате
+    // Рассылаем информацию о реакции всем в чате
     const reactionMessage = {
         type: 'message_reaction',
         timestamp: timestamp,
-        reactions: {} // Сервер не хранит реакции, просто пересылает
+        reaction: reaction,
+        user: sender,
+        add: add !== false, // По умолчанию true
+        reactionTimestamp: reactionTimestamp || Date.now()
     };
 
     if (privateTo) {
@@ -518,8 +521,8 @@ function handleMessageReaction(ws, sender, { timestamp, reaction, add, privateTo
         // Отправляем подтверждение отправителю реакции
         ws.send(JSON.stringify(reactionMessage));
     } else {
-        // Общее сообщение
-        broadcast(reactionMessage, ws);
+        // Общее сообщение - рассылаем всем
+        broadcast(reactionMessage);
     }
 
     console.log(`😊 Reaction ${reaction} by ${sender} on ${timestamp}`);
