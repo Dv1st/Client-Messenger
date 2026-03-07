@@ -25,12 +25,13 @@ const USERNAME_MAX_LENGTH = 20;
 // 🔒 Security Headers
 // ============================================================================
 const CSP_HEADERS = {
-    'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' wss: ws:;",
+    'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' wss: ws:; frame-ancestors 'none';",
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'DENY',
     'X-XSS-Protection': '1; mode=block',
     'Referrer-Policy': 'strict-origin-when-cross-origin',
-    'Permissions-Policy': 'geolocation=(), microphone=(), camera=()'
+    'Permissions-Policy': 'geolocation=(), microphone=(), camera=()',
+    'Strict-Transport-Security': 'max-age=31536000; includeSubDomains'
 };
 
 const ALLOWED_ORIGINS = [
@@ -44,10 +45,11 @@ const ALLOWED_ORIGINS = [
 // ============================================================================
 // 🔹 Хранилища данных
 // ============================================================================
-const users = new Map(); // username → {passwordHash, salt, createdAt, lastLogin, isVisibleInDirectory, status, activeChat, devices}
+const users = new Map(); // username → {passwordHash, salt, createdAt, lastLogin, isVisibleInDirectory, allowGroupInvite, status, activeChat, devices}
 const sessions = new Map(); // tokenId → {username, deviceId, ws, createdAt, lastActivity}
 const wsToToken = new Map(); // WebSocket → tokenId
 const rateLimitMap = new Map(); // ip → {count, resetTime}
+const groups = new Map(); // groupId → {id, name, creator, members: Set, createdAt, lastMessage}
 
 // ============================================================================
 // 🔹 HTTP Сервер
@@ -136,6 +138,7 @@ function broadcastUserList() {
             online: user.status === 'online',
             activeChat: user.activeChat,
             isVisibleInDirectory: user.isVisibleInDirectory !== false,
+            allowGroupInvite: user.allowGroupInvite || false, // 👥
             lastLogin: user.lastLogin
         }));
 
@@ -238,6 +241,7 @@ function handleRegister(ws, { username, password }, clientIp) {
             createdAt: Date.now(),
             lastLogin: null,
             isVisibleInDirectory: false,
+            allowGroupInvite: false, // ✨ По умолчанию запрет на приглашение в группы
             status: 'offline',
             activeChat: null,
             devices: new Map()
@@ -352,16 +356,40 @@ function handleLogout(ws, tokenId, isDisconnect = false) {
 // 💬 Сообщения
 // ============================================================================
 function handleMessage(ws, sender, { text, privateTo, timestamp, encrypted, hint, replyTo }) {
+    // 🔒 Строгая валидация типа sender
+    if (!sender || typeof sender !== 'string' || sender.length > USERNAME_MAX_LENGTH) {
+        console.warn(`🚫 Invalid sender from ${getClientIp(ws)}`);
+        return ws.send(JSON.stringify({ type: 'error', message: 'Неверный отправитель' }));
+    }
+
     if (!text || typeof text !== 'string') {
         return ws.send(JSON.stringify({ type: 'error', message: 'Неверное сообщение' }));
     }
 
     const trimmedText = text.substring(0, MESSAGE_MAX_LENGTH);
 
-    // XSS защита - более строгая проверка
-    if (trimmedText.includes('<script') || trimmedText.includes('javascript:') || trimmedText.includes('onerror=')) {
-        console.warn(`🚫 XSS attempt from ${sender}`);
-        return ws.send(JSON.stringify({ type: 'error', message: 'Недопустимое содержимое' }));
+    // 🔒 XSS защита - расширенная проверка
+    const dangerousPatterns = [
+        '<script',
+        'javascript:',
+        'onerror=',
+        'onclick=',
+        'onload=',
+        'onmouseover=',
+        '<img',
+        '<iframe',
+        '<object',
+        '<embed',
+        'data:text/html',
+        'vbscript:'
+    ];
+
+    const lowerText = trimmedText.toLowerCase();
+    for (const pattern of dangerousPatterns) {
+        if (lowerText.includes(pattern)) {
+            console.warn(`🚫 XSS attempt from ${sender}: ${pattern}`);
+            return ws.send(JSON.stringify({ type: 'error', message: 'Недопустимое содержимое' }));
+        }
     }
 
     const user = users.get(sender);
@@ -542,14 +570,29 @@ function handleUpdateVisibility(ws, username, { isVisible }) {
     broadcastUserList();
 }
 
-// ✨ ИЗМЕНЕНО: Обработка открытия чата
+// ✨ Обработка обновления разрешения на приглашение в группы
+function handleUpdateGroupInvitePermission(ws, username, { allow }) {
+    const user = users.get(username);
+    if (!user) return;
+
+    user.allowGroupInvite = typeof allow === 'boolean' ? allow : false;
+
+    ws.send(JSON.stringify({
+        type: 'group_invite_permission_updated',
+        allow: user.allowGroupInvite
+    }));
+
+    console.log(`🔒 ${username} updated group invite permission: ${user.allowGroupInvite}`);
+}
+
+// ✨ Обработка открытия чата
 function handleChatOpen(ws, username, { chatWith }) {
     const user = users.get(username);
     if (!user) return;
-    
+
     const oldActiveChat = user.activeChat;
     user.activeChat = chatWith || null;
-    
+
     // Рассылаем обновление только если чат изменился
     if (chatWith !== oldActiveChat) {
         broadcast({
@@ -559,6 +602,323 @@ function handleChatOpen(ws, username, { chatWith }) {
             activeChat: chatWith || null
         });
     }
+}
+
+// ============================================================================
+// 👥 Групповые чаты
+// ============================================================================
+
+/**
+ * Создание группы
+ */
+function handleCreateGroup(ws, username, { name, members }) {
+    const user = users.get(username);
+    if (!user) {
+        return ws.send(JSON.stringify({ type: 'error', message: 'Требуется авторизация' }));
+    }
+
+    if (!name || typeof name !== 'string' || name.trim().length < 2 || name.length > 50) {
+        return ws.send(JSON.stringify({ type: 'create_group_error', message: 'Название группы должно быть от 2 до 50 символов' }));
+    }
+
+    if (!Array.isArray(members) || members.length === 0) {
+        return ws.send(JSON.stringify({ type: 'create_group_error', message: 'Добавьте хотя бы одного участника' }));
+    }
+
+    // Проверяем, что все участники существуют и разрешили приглашения
+    const validMembers = new Set([username]); // Создатель автоматически в группе
+    for (const member of members) {
+        const memberUser = users.get(member);
+        if (!memberUser) {
+            return ws.send(JSON.stringify({ type: 'create_group_error', message: `Пользователь "${member}" не найден` }));
+        }
+        if (member !== username && !memberUser.allowGroupInvite) {
+            return ws.send(JSON.stringify({ 
+                type: 'create_group_error', 
+                message: `Пользователь "${member}" запретил добавлять себя в группы` 
+            }));
+        }
+        validMembers.add(member);
+    }
+
+    // Создаём группу
+    const groupId = 'group_' + crypto.randomBytes(16).toString('hex');
+    const group = {
+        id: groupId,
+        name: name.trim(),
+        creator: username,
+        members: validMembers,
+        createdAt: Date.now(),
+        lastMessage: null
+    };
+
+    groups.set(groupId, group);
+
+    console.log(`👥 Group created: ${groupId} by ${username}, members: ${[...validMembers].join(', ')}`);
+
+    // Отправляем подтверждение создателю
+    ws.send(JSON.stringify({
+        type: 'group_created',
+        group: {
+            id: group.id,
+            name: group.name,
+            creator: group.creator,
+            members: [...group.members],
+            createdAt: group.createdAt
+        }
+    }));
+
+    // Уведомляем участников группы
+    notifyGroupMembers(group, 'group_created', {
+        group: {
+            id: group.id,
+            name: group.name,
+            creator: group.creator,
+            members: [...group.members],
+            createdAt: group.createdAt
+        }
+    }, ws);
+
+    // Обновляем список пользователей для всех (чтобы показать группы)
+    broadcastGroupList();
+}
+
+/**
+ * Добавление участника в группу
+ */
+function handleAddMemberToGroup(ws, username, { groupId, member }) {
+    const user = users.get(username);
+    if (!user) return;
+
+    const group = groups.get(groupId);
+    if (!group) {
+        return ws.send(JSON.stringify({ type: 'error', message: 'Группа не найдена' }));
+    }
+
+    // Только создатель может добавлять участников
+    if (group.creator !== username) {
+        return ws.send(JSON.stringify({ type: 'error', message: 'Только создатель может добавлять участников' }));
+    }
+
+    const memberUser = users.get(member);
+    if (!memberUser) {
+        return ws.send(JSON.stringify({ type: 'error', message: 'Пользователь не найден' }));
+    }
+
+    if (!memberUser.allowGroupInvite) {
+        return ws.send(JSON.stringify({ type: 'error', message: `Пользователь "${member}" запретил добавлять себя в группы` }));
+    }
+
+    if (group.members.has(member)) {
+        return ws.send(JSON.stringify({ type: 'error', message: 'Пользователь уже в группе' }));
+    }
+
+    group.members.add(member);
+
+    console.log(`👥 ${member} added to group ${groupId} by ${username}`);
+
+    // Уведомляем всех участников группы
+    notifyGroupMembers(group, 'group_member_added', {
+        groupId,
+        member,
+        addedBy: username
+    });
+}
+
+/**
+ * Удаление участника из группы
+ */
+function handleRemoveMemberFromGroup(ws, username, { groupId, member }) {
+    const user = users.get(username);
+    if (!user) return;
+
+    const group = groups.get(groupId);
+    if (!group) return;
+
+    // Только создатель может удалять участников
+    if (group.creator !== username) {
+        return ws.send(JSON.stringify({ type: 'error', message: 'Только создатель может удалять участников' }));
+    }
+
+    if (!group.members.has(member)) {
+        return ws.send(JSON.stringify({ type: 'error', message: 'Пользователь не в группе' }));
+    }
+
+    group.members.delete(member);
+
+    console.log(`👥 ${member} removed from group ${groupId} by ${username}`);
+
+    // Уведомляем всех участников группы
+    notifyGroupMembers(group, 'group_member_removed', {
+        groupId,
+        member,
+        removedBy: username
+    });
+}
+
+/**
+ * Отправка сообщения в группу
+ */
+function handleGroupMessage(ws, sender, { groupId, text, timestamp, encrypted, hint, replyTo }) {
+    const user = users.get(sender);
+    if (!user) {
+        return ws.send(JSON.stringify({ type: 'error', message: 'Требуется авторизация' }));
+    }
+
+    const group = groups.get(groupId);
+    if (!group || !group.members.has(sender)) {
+        return ws.send(JSON.stringify({ type: 'error', message: 'Вы не участник этой группы' }));
+    }
+
+    if (!text || typeof text !== 'string') {
+        return ws.send(JSON.stringify({ type: 'error', message: 'Неверное сообщение' }));
+    }
+
+    const trimmedText = text.substring(0, MESSAGE_MAX_LENGTH);
+
+    // XSS защита
+    if (trimmedText.includes('<script') || trimmedText.includes('javascript:') || trimmedText.includes('onerror=')) {
+        console.warn(`🚫 XSS attempt from ${sender} in group ${groupId}`);
+        return ws.send(JSON.stringify({ type: 'error', message: 'Недопустимое содержимое' }));
+    }
+
+    const message = {
+        type: 'receive_group_message',
+        sender,
+        groupId,
+        groupName: group.name,
+        text: trimmedText,
+        timestamp: timestamp || Date.now(),
+        encrypted: encrypted || false,
+        hint: hint || null,
+        replyTo: replyTo || null
+    };
+
+    group.lastMessage = Date.now();
+
+    // Отправляем всем участникам группы
+    for (const memberName of group.members) {
+        const memberUser = users.get(memberName);
+        if (memberUser) {
+            for (const [_, device] of memberUser.devices.entries()) {
+                if (device.ws?.readyState === WebSocket.OPEN) {
+                    device.ws.send(JSON.stringify(message));
+                }
+            }
+        }
+    }
+
+    // Подтверждение доставки отправителю
+    ws.send(JSON.stringify({
+        type: 'message_confirmed',
+        timestamp: message.timestamp,
+        confirmed: true
+    }));
+
+    console.log(`💬 Group message in ${groupId} from ${sender}`);
+}
+
+/**
+ * Выход из группы
+ */
+function handleLeaveGroup(ws, username, { groupId }) {
+    const group = groups.get(groupId);
+    if (!group) return;
+
+    // Создатель не может выйти, он должен удалить группу
+    if (group.creator === username) {
+        return ws.send(JSON.stringify({ type: 'error', message: 'Создатель не может выйти из группы. Удалите группу.' }));
+    }
+
+    if (!group.members.has(username)) {
+        return ws.send(JSON.stringify({ type: 'error', message: 'Вы не в группе' }));
+    }
+
+    group.members.delete(username);
+
+    console.log(`👥 ${username} left group ${groupId}`);
+
+    // Уведомляем всех участников группы
+    notifyGroupMembers(group, 'group_member_left', {
+        groupId,
+        member: username
+    });
+}
+
+/**
+ * Удаление группы
+ */
+function handleDeleteGroup(ws, username, { groupId }) {
+    const group = groups.get(groupId);
+    if (!group) return;
+
+    if (group.creator !== username) {
+        return ws.send(JSON.stringify({ type: 'error', message: 'Только создатель может удалить группу' }));
+    }
+
+    console.log(`🗑️ Group deleted: ${groupId} by ${username}`);
+
+    // Уведомляем всех участников
+    notifyGroupMembers(group, 'group_deleted', { groupId });
+
+    groups.delete(groupId);
+    broadcastGroupList();
+}
+
+/**
+ * Запрос списка групп
+ */
+function handleGetGroups(ws, username) {
+    const userGroups = [];
+    for (const group of groups.values()) {
+        if (group.members.has(username)) {
+            userGroups.push({
+                id: group.id,
+                name: group.name,
+                creator: group.creator,
+                members: [...group.members],
+                createdAt: group.createdAt,
+                lastMessage: group.lastMessage
+            });
+        }
+    }
+
+    ws.send(JSON.stringify({
+        type: 'group_list',
+        groups: userGroups
+    }));
+}
+
+/**
+ * Рассылка уведомления всем участникам группы
+ */
+function notifyGroupMembers(group, type, data, excludeWs = null) {
+    for (const memberName of group.members) {
+        const memberUser = users.get(memberName);
+        if (memberUser) {
+            for (const [_, device] of memberUser.devices.entries()) {
+                if (device.ws?.readyState === WebSocket.OPEN && device.ws !== excludeWs) {
+                    device.ws.send(JSON.stringify({ type, ...data }));
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Рассылка списка групп всем пользователям
+ */
+function broadcastGroupList() {
+    const groupsList = Array.from(groups.values()).map(group => ({
+        id: group.id,
+        name: group.name,
+        creator: group.creator,
+        members: [...group.members],
+        createdAt: group.createdAt,
+        lastMessage: group.lastMessage
+    }));
+
+    broadcast({ type: 'group_list_update', groups: groupsList });
 }
 
 // ============================================================================
@@ -624,6 +984,32 @@ wss.on('connection', (ws, req) => {
                 break;
             case 'update_visibility':
                 if (session) handleUpdateVisibility(ws, username, data);
+                break;
+            // ✨ Обработка обновления разрешения на приглашение в группы
+            case 'update_group_invite_permission':
+                if (session) handleUpdateGroupInvitePermission(ws, username, data);
+                break;
+            // 👥 Групповые чаты
+            case 'create_group':
+                if (session) handleCreateGroup(ws, username, data);
+                break;
+            case 'add_member_to_group':
+                if (session) handleAddMemberToGroup(ws, username, data);
+                break;
+            case 'remove_member_from_group':
+                if (session) handleRemoveMemberFromGroup(ws, username, data);
+                break;
+            case 'send_group_message':
+                if (session) handleGroupMessage(ws, username, data);
+                break;
+            case 'leave_group':
+                if (session) handleLeaveGroup(ws, username, data);
+                break;
+            case 'delete_group':
+                if (session) handleDeleteGroup(ws, username, data);
+                break;
+            case 'get_groups':
+                if (session) handleGetGroups(ws, username);
                 break;
             case 'get_history':
                 if (session) handleGetHistory(ws, username, data);
