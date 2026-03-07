@@ -517,8 +517,8 @@ function handleServerMessage(data) {
                 break;
             // ✨ Обработка реакции на сообщение
             case 'message_reaction':
-                if (data.timestamp && data.reactions) {
-                    handleRemoteMessageReaction(data.timestamp, data.reactions);
+                if (data.timestamp && data.reaction) {
+                    handleRemoteMessageReaction(data.timestamp, data);
                 }
                 break;
             default:
@@ -873,13 +873,6 @@ function initUserListEvents() {
         if (e.target.closest('.delete-btn')) {
             e.stopPropagation();
             deleteChat(username, chatItem);
-            return;
-        }
-
-        // Клик по кнопке закрыть
-        if (e.target.closest('.close-chat')) {
-            e.stopPropagation();
-            showGeneralChat();
             return;
         }
 
@@ -1271,17 +1264,9 @@ function renderActiveChats() {
         actionButtons.appendChild(pinBtn);
         actionButtons.appendChild(deleteBtn);
 
-        const closeBtn = document.createElement('button');
-        closeBtn.className = 'close-chat';
-        closeBtn.type = 'button';
-        closeBtn.textContent = '✕';
-        closeBtn.title = 'Закрыть';
-        closeBtn.setAttribute('aria-label', 'Закрыть чат');
-
         item.appendChild(chatIcon);
         item.appendChild(chatName);
         item.appendChild(actionButtons);
-        item.appendChild(closeBtn);
 
         fragment.appendChild(item);
     });
@@ -1963,6 +1948,7 @@ function createMessageElement(data, isOwn = false) {
 
     // ✨ Отображаем реакции если они есть
     if (data.reactions) {
+        message._reactions = data.reactions;
         updateMessageReactions(message, data.reactions);
     }
 
@@ -2131,26 +2117,12 @@ function showReactionPicker(x, y, messageData, messageEl) {
     picker.className = 'reaction-picker';
     picker.setAttribute('role', 'dialog');
     picker.setAttribute('aria-label', 'Выберите реакцию');
-    picker.style.cssText = `
-        position: fixed;
-        left: ${Math.min(x, window.innerWidth - 220)}px;
-        top: ${y - 50}px;
-        background: var(--panel-bg);
-        border: 1px solid var(--border-color);
-        border-radius: 12px;
-        padding: 8px;
-        display: flex;
-        gap: 4px;
-        flex-wrap: wrap;
-        width: 200px;
-        z-index: 1003;
-        box-shadow: 0 4px 20px var(--shadow-color);
-        animation: fadeIn 0.2s ease;
-    `;
+    picker.style.left = `${Math.min(x, window.innerWidth - 220)}px`;
+    picker.style.top = `${y - 50}px`;
 
     // ✨ Сортируем реакции по частоте использования
     const sortedReactions = getSortedReactions();
-    
+
     // Обработчик закрытия
     const closePicker = (e) => {
         if (!picker.contains(e.target)) {
@@ -2159,7 +2131,7 @@ function showReactionPicker(x, y, messageData, messageEl) {
             document.removeEventListener('keydown', handleEscKey);
         }
     };
-    
+
     const handleEscKey = (e) => {
         if (e.key === 'Escape') {
             picker.remove();
@@ -2174,21 +2146,6 @@ function showReactionPicker(x, y, messageData, messageEl) {
         btn.textContent = emoji;
         btn.setAttribute('aria-label', `Реакция ${emoji}`);
         btn.setAttribute('type', 'button');
-        btn.style.cssText = `
-            background: transparent;
-            border: none;
-            cursor: pointer;
-            font-size: 20px;
-            padding: 4px 8px;
-            border-radius: 6px;
-            transition: background 0.2s;
-        `;
-        btn.addEventListener('mouseover', () => {
-            btn.style.background = 'var(--element-bg)';
-        });
-        btn.addEventListener('mouseout', () => {
-            btn.style.background = 'transparent';
-        });
         btn.addEventListener('click', () => {
             addReaction(messageData, messageEl, emoji);
             picker.remove();
@@ -2229,49 +2186,108 @@ function getSortedReactions() {
 }
 
 /**
+ * ✨ Получить реакции пользователя для сообщения
+ * @param {Object} reactions - Объект реакций в формате {emoji: [{userId, timestamp}]}
+ * @param {string} userId - ID пользователя
+ * @returns {Array} - Массив реакций пользователя [{emoji, timestamp}]
+ */
+function getUserReactionsForMessage(reactions, userId) {
+    if (!reactions || typeof reactions !== 'object') return [];
+    
+    const userReactions = [];
+    for (const [emoji, users] of Object.entries(reactions)) {
+        if (Array.isArray(users)) {
+            const userReaction = users.find(r => r.userId === userId);
+            if (userReaction) {
+                userReactions.push({ emoji, timestamp: userReaction.timestamp });
+            }
+        }
+    }
+    // Сортируем по timestamp (самые старые первые)
+    return userReactions.sort((a, b) => a.timestamp - b.timestamp);
+}
+
+/**
  * ✨ Добавить реакцию на сообщение
  * @param {Object} messageData - Данные сообщения
  * @param {HTMLElement} messageEl - Элемент сообщения
  * @param {string} emoji - Смайлик реакции
  */
 function addReaction(messageData, messageEl, emoji) {
+    if (!messageData || !messageEl) return;
+    
     // Увеличиваем частоту использования
     userReactionFrequency[emoji] = (userReactionFrequency[emoji] || 0) + 1;
     localStorage.setItem(`reaction_frequency_${currentUser}`, JSON.stringify(userReactionFrequency));
 
-    // Получаем текущие реакции сообщения
-    const reactions = messageData.reactions || {};
-    const userReactions = reactions[currentUser] || [];
+    // Получаем текущие реакции сообщения в формате {emoji: [{userId, timestamp}]}
+    let allReactions = messageEl._reactions || {};
+    
+    // Глубокое копирование чтобы не мутировать оригинал
+    allReactions = JSON.parse(JSON.stringify(allReactions));
 
-    // Если уже есть такая реакция, убираем её (toggle)
-    if (userReactions.includes(emoji)) {
-        const index = userReactions.indexOf(emoji);
-        userReactions.splice(index, 1);
+    // Получаем текущие реакции пользователя
+    const userReactions = getUserReactionsForMessage(allReactions, currentUser);
+    
+    // Проверяем, есть ли уже такая реакция от текущего пользователя
+    const existingUserReactionForEmoji = allReactions[emoji]?.find(r => r.userId === currentUser);
+    
+    if (existingUserReactionForEmoji) {
+        // Если реакция уже есть — убираем её (toggle)
+        allReactions[emoji] = allReactions[emoji].filter(r => r.userId !== currentUser);
+        if (allReactions[emoji].length === 0) {
+            delete allReactions[emoji];
+        }
     } else {
-        userReactions.push(emoji);
+        // Если реакции нет — добавляем
+        // Проверяем лимит: не более 2 реакций на пользователя
+        if (userReactions.length >= 2) {
+            // Удаляем самую старую реакцию (FIFO)
+            const oldestReaction = userReactions[0]; // самый старый (первый в отсортированном списке)
+            if (oldestReaction) {
+                allReactions[oldestReaction.emoji] = allReactions[oldestReaction.emoji].filter(
+                    r => r.userId !== currentUser
+                );
+                if (allReactions[oldestReaction.emoji].length === 0) {
+                    delete allReactions[oldestReaction.emoji];
+                }
+            }
+        }
+        
+        // Добавляем новую реакцию
+        if (!allReactions[emoji]) {
+            allReactions[emoji] = [];
+        }
+        allReactions[emoji].push({
+            userId: currentUser,
+            timestamp: Date.now()
+        });
     }
 
-    reactions[currentUser] = userReactions;
-    messageData.reactions = reactions;
+    // Обновляем данные в messageData и messageEl
+    messageData.reactions = allReactions;
+    messageEl._reactions = allReactions;
 
     // ✨ Отправляем реакцию серверу
     sendToServer({
         type: 'message_reaction',
         timestamp: messageData.timestamp,
         reaction: emoji,
-        add: userReactions.includes(emoji),
+        add: !!allReactions[emoji]?.find(r => r.userId === currentUser),
+        user: currentUser,
+        reactionTimestamp: allReactions[emoji]?.find(r => r.userId === currentUser)?.timestamp || Date.now(),
         privateTo: selectedUser || null
     });
 
     // Обновляем отображение
-    updateMessageReactions(messageEl, reactions);
+    updateMessageReactions(messageEl, allReactions);
 
     // Сохраняем в localStorage
     if (selectedUser) {
         const messages = loadMessagesFromStorage(selectedUser);
         const msg = messages.find(m => m.timestamp === messageData.timestamp);
         if (msg) {
-            msg.reactions = reactions;
+            msg.reactions = allReactions;
             localStorage.setItem(`chat_messages_${currentUser}_${selectedUser}`, JSON.stringify(messages));
         }
     }
@@ -2280,48 +2296,50 @@ function addReaction(messageData, messageEl, emoji) {
 /**
  * ✨ Обновить отображение реакций на сообщении
  * @param {HTMLElement} messageEl - Элемент сообщения
- * @param {Object} reactions - Объект реакций
+ * @param {Object} reactions - Объект реакций в формате {emoji: [{userId, timestamp}]}
  */
 function updateMessageReactions(messageEl, reactions) {
     // Удаляем старую панель реакций
     const existingReactions = messageEl.querySelector('.message-reactions');
     if (existingReactions) existingReactions.remove();
 
-    // Собираем все реакции
-    const allReactions = {};
-    Object.values(reactions).forEach(userReacts => {
-        userReacts.forEach(emoji => {
-            allReactions[emoji] = (allReactions[emoji] || 0) + 1;
-        });
-    });
-
-    if (Object.keys(allReactions).length === 0) return;
+    // Проверяем валидность реакций
+    if (!reactions || typeof reactions !== 'object') return;
+    
+    const validReactions = Object.entries(reactions).filter(([_, users]) => 
+        Array.isArray(users) && users.length > 0
+    );
+    
+    if (validReactions.length === 0) return;
 
     // Создаём панель реакций
     const reactionsBar = document.createElement('div');
     reactionsBar.className = 'message-reactions';
-    reactionsBar.style.cssText = `
-        display: flex;
-        gap: 4px;
-        flex-wrap: wrap;
-        margin-top: 6px;
-        padding-top: 6px;
-        border-top: 1px solid rgba(255,255,255,0.1);
-    `;
 
-    Object.entries(allReactions).forEach(([emoji, count]) => {
+    for (const [emoji, users] of validReactions) {
         const reactionEl = document.createElement('span');
         reactionEl.className = 'reaction-item';
-        reactionEl.textContent = `${emoji}${count > 1 ? ` ${count}` : ''}`;
-        reactionEl.style.cssText = `
-            background: var(--element-bg);
-            padding: 2px 6px;
-            border-radius: 12px;
-            font-size: 12px;
-            cursor: pointer;
-        `;
+        reactionEl.dataset.emoji = emoji;
+        // Показываем emoji и количество пользователей
+        reactionEl.textContent = `${emoji} ${users.length}`;
+        reactionEl.title = users.map(u => u.userId).join(', ');
+        
+        // Клик по реакции — добавляем/убираем реакцию
+        reactionEl.addEventListener('click', (e) => {
+            e.stopPropagation();
+            // Находим messageData через timestamp
+            const timestamp = messageEl.dataset.timestamp;
+            if (selectedUser && timestamp) {
+                const messages = loadMessagesFromStorage(selectedUser);
+                const msgData = messages.find(m => m.timestamp == timestamp);
+                if (msgData) {
+                    addReaction(msgData, messageEl, emoji);
+                }
+            }
+        });
+        
         reactionsBar.appendChild(reactionEl);
-    });
+    }
 
     messageEl.querySelector('.meta')?.before(reactionsBar);
 }
@@ -2480,19 +2498,58 @@ function handleRemoteMessageDelete(timestamp, deletedBy) {
 /**
  * ✨ Обработка реакции от сервера
  * @param {number} timestamp - Временная метка сообщения
- * @param {Object} reactions - Объект реакций
+ * @param {Object} data - Данные реакции (reaction, user, add, reactionTimestamp)
  */
-function handleRemoteMessageReaction(timestamp, reactions) {
-    if (!DOM.messagesList || !timestamp) {
+function handleRemoteMessageReaction(timestamp, data) {
+    if (!DOM.messagesList || !timestamp || !data.reaction) {
         console.warn('⚠️ handleRemoteMessageReaction: invalid params');
         return;
     }
 
-    // Находим сообщение в DOM
+    const { reaction, user, add, reactionTimestamp } = data;
+
+    // Находим сообщение в DOM и обновляем реакции
     const messages = DOM.messagesList.querySelectorAll('.message');
     messages.forEach(msg => {
         if (msg.dataset.timestamp == timestamp) {
-            updateMessageReactions(msg, reactions);
+            // Получаем текущие реакции в формате {emoji: [{userId, timestamp}]}
+            const currentReactions = msg._reactions || {};
+            
+            // Инициализируем массив для этой реакции если нет
+            if (!currentReactions[reaction]) {
+                currentReactions[reaction] = [];
+            }
+
+            // Проверяем есть ли уже реакция от этого пользователя
+            const existingUserReactionIndex = currentReactions[reaction].findIndex(
+                r => r.userId === user
+            );
+
+            if (add !== false) {
+                // Добавляем реакцию
+                if (existingUserReactionIndex === -1) {
+                    // Реакции от этого пользователя ещё нет — добавляем
+                    currentReactions[reaction].push({
+                        userId: user,
+                        timestamp: reactionTimestamp || Date.now()
+                    });
+                }
+                // Если реакция уже есть — ничего не делаем (уже учтена)
+            } else {
+                // Удаляем реакцию пользователя
+                if (existingUserReactionIndex !== -1) {
+                    currentReactions[reaction].splice(existingUserReactionIndex, 1);
+                }
+                // Удаляем пустой массив
+                if (currentReactions[reaction].length === 0) {
+                    delete currentReactions[reaction];
+                }
+            }
+
+            // Сохраняем реакции в элементе
+            msg._reactions = currentReactions;
+
+            updateMessageReactions(msg, currentReactions);
         }
     });
 
@@ -2501,7 +2558,34 @@ function handleRemoteMessageReaction(timestamp, reactions) {
         const messages = loadMessagesFromStorage(selectedUser);
         const msg = messages.find(m => m.timestamp === timestamp);
         if (msg) {
-            msg.reactions = reactions;
+            if (!msg.reactions) msg.reactions = {};
+            const currentReactions = msg.reactions;
+            
+            // Инициализируем массив для этой реакции если нет
+            if (!currentReactions[reaction]) {
+                currentReactions[reaction] = [];
+            }
+
+            const existingUserReactionIndex = currentReactions[reaction].findIndex(
+                r => r.userId === user
+            );
+
+            if (add !== false) {
+                if (existingUserReactionIndex === -1) {
+                    currentReactions[reaction].push({
+                        userId: user,
+                        timestamp: reactionTimestamp || Date.now()
+                    });
+                }
+            } else {
+                if (existingUserReactionIndex !== -1) {
+                    currentReactions[reaction].splice(existingUserReactionIndex, 1);
+                }
+                if (currentReactions[reaction].length === 0) {
+                    delete currentReactions[reaction];
+                }
+            }
+
             localStorage.setItem(`chat_messages_${currentUser}_${selectedUser}`, JSON.stringify(messages));
         }
     }
@@ -3053,6 +3137,24 @@ function loadSavedUsers() {
         if (saved) {
             users = JSON.parse(saved);
         }
+        
+        // ✨ Восстанавливаем активные чаты на основе сохранённых сообщений
+        // Проходим по всем ключам localStorage и ищем сообщения чатов
+        Object.keys(localStorage).forEach(key => {
+            if (key.startsWith('chat_messages_')) {
+                // Ключ формата: chat_messages_<currentUser>_<username>
+                const parts = key.replace('chat_messages_', '').split('_');
+                if (parts.length >= 2) {
+                    const username = parts.slice(1).join('_');
+                    
+                    // Находим пользователя в списке и восстанавливаем activeChat
+                    const user = users.find(u => u.name === username);
+                    if (user) {
+                        user.activeChat = currentUser;
+                    }
+                }
+            }
+        });
     } catch (e) {
         console.error('❌ Load users error:', e);
         users = [];
