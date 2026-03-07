@@ -343,16 +343,18 @@ function handleMessage(ws, sender, { text, privateTo, timestamp, encrypted, hint
 
     const user = users.get(sender);
     if (user) {
+        const oldActiveChat = user.activeChat;
         user.activeChat = privateTo || null;
         user.status = 'online';
 
-        if (privateTo) {
+        // ✨ ИЗМЕНЕНО: Обновляем статус и рассылаем если чат изменился
+        if (privateTo !== oldActiveChat) {
             broadcast({
                 type: 'user_status_update',
                 username: sender,
-                status: 'in_chat',
-                activeChat: privateTo
-            }, ws);
+                status: privateTo ? 'in_chat' : 'online',
+                activeChat: privateTo || null
+            });
         }
     }
 
@@ -380,7 +382,13 @@ function handleMessage(ws, sender, { text, privateTo, timestamp, encrypted, hint
                 }
             }
         }
-        ws.send(JSON.stringify({ ...message, confirmed: true }));
+        
+        // ✨ ИЗМЕНЕНО: Отправляем подтверждение доставки отправителю
+        ws.send(JSON.stringify({
+            type: 'message_confirmed',
+            timestamp: message.timestamp,
+            confirmed: true
+        }));
     } else {
         broadcast(message, ws);
     }
@@ -436,6 +444,25 @@ function handleUpdateVisibility(ws, username, { isVisible }) {
     }));
 
     broadcastUserList();
+}
+
+// ✨ ИЗМЕНЕНО: Обработка открытия чата
+function handleChatOpen(ws, username, { chatWith }) {
+    const user = users.get(username);
+    if (!user) return;
+    
+    const oldActiveChat = user.activeChat;
+    user.activeChat = chatWith || null;
+    
+    // Рассылаем обновление только если чат изменился
+    if (chatWith !== oldActiveChat) {
+        broadcast({
+            type: 'user_status_update',
+            username,
+            status: chatWith ? 'in_chat' : 'online',
+            activeChat: chatWith || null
+        });
+    }
 }
 
 // ============================================================================
@@ -511,6 +538,10 @@ wss.on('connection', (ws, req) => {
             // ✨ ИЗМЕНЕНО: Обработка подтверждения прочтения
             case 'message_read':
                 if (session) handleMessageRead(ws, username, data);
+                break;
+            // ✨ ИЗМЕНЕНО: Обработка открытия чата
+            case 'chat_open':
+                if (session) handleChatOpen(ws, username, data);
                 break;
             case 'ping':
                 ws.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
