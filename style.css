@@ -367,7 +367,8 @@ body.font-large { font-size: 16px; }
 
 .active-chat-item .chat-icon {
     margin-right: 10px;
-    font-size: 16px;
+    font-size: 20px;
+    line-height: 1;
 }
 
 .active-chat-item .chat-name {
@@ -377,6 +378,36 @@ body.font-large { font-size: 16px; }
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+/* Кнопки действий в активных чатах */
+.active-chat-item .chat-actions {
+    display: flex;
+    gap: 4px;
+    margin-right: 8px;
+}
+
+.active-chat-item .chat-action-btn {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    font-size: 14px;
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background var(--transition-fast);
+    flex-shrink: 0;
+}
+
+.active-chat-item .chat-action-btn:hover {
+    background: var(--element-bg-hover);
+}
+
+.active-chat-item .chat-action-btn.pinned {
+    color: var(--pinned);
 }
 
 .active-chat-item .close-chat {
@@ -440,50 +471,13 @@ body.font-large { font-size: 16px; }
 }
 
 .user-item .status {
-    font-size: 18px;
     margin-right: 10px;
-    position: relative;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
-}
-
-/* Индикатор статуса (точка) */
-.user-item .status::after {
-    content: '';
-    position: absolute;
-    bottom: 1px;
-    right: -2px;
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    border: 2px solid var(--panel-bg);
-}
-
-.user-item.online .status::after {
-    background: var(--status-online);
-}
-
-.user-item.in-chat .status::after {
-    background: var(--status-in-chat);
-}
-
-.user-item.offline .status::after {
-    background: var(--status-offline);
-}
-
-/* Иконка "в чате" */
-.user-item.in-chat .status::before {
-    content: '✎';
-    position: absolute;
-    font-size: 9px;
-    right: -7px;
-    top: -3px;
-    color: var(--status-in-chat);
-    background: var(--panel-bg);
-    border-radius: 50%;
-    padding: 1px;
+    font-size: 20px;
+    line-height: 1;
 }
 
 .user-item .name {
@@ -493,47 +487,6 @@ body.font-large { font-size: 16px; }
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-}
-
-.user-item.offline .name {
-    color: var(--text-muted);
-}
-
-/* Кнопки действий */
-.user-item .action-buttons {
-    display: flex;
-    gap: 4px;
-    opacity: 0;
-    transition: opacity var(--transition-fast);
-    position: absolute;
-    right: 6px;
-}
-
-.user-item:hover .action-buttons {
-    opacity: 1;
-}
-
-.user-item .action-btn {
-    background: transparent;
-    border: none;
-    cursor: pointer;
-    font-size: 14px;
-    width: 28px;
-    height: 28px;
-    border-radius: 6px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: background var(--transition-fast);
-    flex-shrink: 0;
-}
-
-.user-item .action-btn:hover {
-    background: var(--element-bg-hover);
-}
-
-.user-item .action-btn.pinned {
-    color: var(--pinned);
 }
 
 /* Подвал sidebar */
@@ -1422,10 +1375,7 @@ body.font-large { font-size: 16px; }
         padding: 12px 4px;
     }
 
-    .sidebar.collapsed .user-item .name,
-    .sidebar.collapsed .user-item .action-buttons,
-    .sidebar.collapsed .user-item .status::after,
-    .sidebar.collapsed .user-item .status::before {
+    .sidebar.collapsed .user-item .name {
         display: none;
     }
 
