@@ -868,6 +868,11 @@ function updateUsersList(serverUsers) {
     users.sort((a, b) => (b.isPinned ? 1 : 0) - (a.isPinned ? 1 : 0));
     saveUsersToStorage();
     renderUsers();
+    
+    // Обновляем статус в заголовке если чат открыт
+    if (selectedUser) {
+        updateChatUserStatus(selectedUser);
+    }
 }
 
 function updateUserStatus(username, status, activeChat = null) {
@@ -878,6 +883,7 @@ function updateUserStatus(username, status, activeChat = null) {
         saveUsersToStorage();
         renderUsers();
 
+        // Обновляем статус в заголовке если это текущий выбранный пользователь
         if (selectedUser === username) {
             updateChatUserStatus(username);
         }
@@ -1045,17 +1051,19 @@ function updateUserItemSelection(username) {
 
 /**
  * Обновление статуса пользователя в заголовке
- * @param {string} username - Имя пользователя
+ * @param {string} username - Имя пользователя (собеседника!)
  */
 function updateChatUserStatus(username) {
     if (!DOM.chatUserStatus) return;
 
+    // Находим пользователя в списке
     const user = users.find(u => u.name === username);
     if (!user) {
         DOM.chatUserStatus.classList.add('hidden');
         return;
     }
 
+    // Преобразуем статус
     const statusClass = user.status === 'in_chat' ? 'in-chat' : user.status;
     const statusLabels = {
         'online': 'Онлайн',
@@ -1063,12 +1071,25 @@ function updateChatUserStatus(username) {
         'offline': 'Офлайн'
     };
 
+    // Обновляем классы
     DOM.chatUserStatus.classList.remove('hidden', 'online', 'offline', 'in-chat');
     DOM.chatUserStatus.classList.add(statusClass);
 
+    // Обновляем текст статуса
     const statusText = DOM.chatUserStatus.querySelector('.status-text');
     if (statusText) {
         statusText.textContent = statusLabels[statusClass] || 'Офлайн';
+    }
+
+    // Обновляем цвет точки статуса
+    const statusDot = DOM.chatUserStatus.querySelector('.status-dot');
+    if (statusDot) {
+        const statusColors = {
+            'online': 'var(--status-online)',
+            'in-chat': 'var(--status-in-chat)',
+            'offline': 'var(--status-offline)'
+        };
+        statusDot.style.background = statusColors[statusClass] || 'var(--status-offline)';
     }
 }
 
@@ -1094,6 +1115,19 @@ function selectUser(username) {
         if (messages && messages.length > 0) {
             const fragment = document.createDocumentFragment();
             messages.forEach(msg => {
+                // Исправляем статус доставки для загруженных сообщений
+                // Если сообщение не наше и статус pending, меняем на delivered
+                if (msg.sender !== currentUser && msg.deliveryStatus === 'pending') {
+                    msg.deliveryStatus = 'delivered';
+                }
+                // Если наше сообщение со статусом pending и прошло больше 5 секунд, меняем на sent
+                if (msg.sender === currentUser && msg.deliveryStatus === 'pending') {
+                    const msgAge = Date.now() - msg.timestamp;
+                    if (msgAge > 5000) {
+                        msg.deliveryStatus = 'sent';
+                    }
+                }
+                
                 const msgEl = createMessageElement(msg, msg.sender === currentUser);
                 if (msgEl) fragment.appendChild(msgEl);
             });
@@ -1103,6 +1137,7 @@ function selectUser(username) {
     }
 
     setInputPanelVisible(true);
+    // Обновляем статус собеседника (не текущего пользователя!)
     updateChatUserStatus(username);
     checkMobileView();
     updateScrollButton();
