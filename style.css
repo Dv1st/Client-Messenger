@@ -24,16 +24,17 @@
     --success-hover: #00E676;
     --warning: #FFB300;
     --pinned: #FFD700;
-    --own-message-bg: #7B2CBF;
+    /* ✨ Цвет своих сообщений зависит от accent */
+    --own-message-bg: color-mix(in srgb, var(--accent) 85%, black 15%);
     --other-message-bg: #2A2640;
     --border-color: #2A2640;
     --shadow-color: rgba(0, 0, 0, 0.4);
-    
+
     /* Статусы */
     --status-online: #2ecc71;
     --status-in-chat: #3498db;
     --status-offline: #95a5a6;
-    
+
     /* Размеры */
     --sidebar-width: 350px;
     --sidebar-collapsed-width: 70px;
@@ -41,7 +42,7 @@
     --border-radius-sm: 6px;
     --border-radius-md: 10px;
     --border-radius-lg: 16px;
-    
+
     /* Анимации */
     --transition-fast: 0.15s ease;
     --transition-normal: 0.3s ease;
@@ -58,7 +59,8 @@
     --text-muted: #999999;
     --border-color: #e0e0e0;
     --shadow-color: rgba(0, 0, 0, 0.15);
-    --own-message-bg: #d1c4e9;
+    /* ✨ Цвет своих сообщений для светлой темы */
+    --own-message-bg: color-mix(in srgb, var(--accent) 20%, white 80%);
     --other-message-bg: #f0f0f0;
 }
 
@@ -341,6 +343,46 @@ body.font-large { font-size: 16px; }
     letter-spacing: 0.5px;
 }
 
+/* ✨ Кнопка сворачивания секции */
+.section-header.users-section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+}
+
+.collapse-section-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all var(--transition-fast);
+}
+
+.collapse-section-btn:hover {
+    background: var(--element-bg);
+    color: var(--text-primary);
+}
+
+.collapse-section-btn .collapse-icon {
+    font-size: 12px;
+    transition: transform var(--transition-fast);
+}
+
+.collapse-section-btn.collapsed .collapse-icon {
+    transform: rotate(-90deg);
+}
+
+/* Свёрнутая секция пользователей */
+.users-section.collapsed .users-list {
+    display: none;
+}
+
 .active-chats-list {
     padding: 4px;
 }
@@ -408,6 +450,22 @@ body.font-large { font-size: 16px; }
 
 .active-chat-item .chat-action-btn.pinned {
     color: var(--pinned);
+}
+
+/* ✨ Счётчик непрочитанных */
+.active-chat-item .unread-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    background: var(--error);
+    color: white;
+    font-size: 11px;
+    font-weight: 700;
+    border-radius: 10px;
+    margin-left: 6px;
 }
 
 .active-chat-item .close-chat {
@@ -1359,10 +1417,39 @@ body.font-large { font-size: 16px; }
     }
 
     .sidebar.collapsed .search-container,
-    .sidebar.collapsed .chats-section,
     .sidebar.collapsed .sidebar-divider,
     .sidebar.collapsed .current-user .user-label,
     .sidebar.collapsed .settings-btn {
+        display: none;
+    }
+
+    /* ✨ Показываем активные чаты в свёрнутом sidebar */
+    .sidebar.collapsed .chats-section {
+        display: block;
+        max-height: 120px;
+        overflow-y: auto;
+    }
+
+    .sidebar.collapsed .chats-section .section-header {
+        display: none;
+    }
+
+    .sidebar.collapsed .active-chat-item {
+        justify-content: center;
+        padding: 8px 4px;
+    }
+
+    .sidebar.collapsed .active-chat-item .chat-name {
+        display: none;
+    }
+
+    .sidebar.collapsed .active-chat-item .chat-icon {
+        margin-right: 0;
+        font-size: 20px;
+    }
+
+    .sidebar.collapsed .active-chat-item .chat-actions,
+    .sidebar.collapsed .active-chat-item .close-chat {
         display: none;
     }
 
