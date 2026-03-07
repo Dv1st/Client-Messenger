@@ -228,7 +228,7 @@ function handleRegister(ws, { username, password }, clientIp) {
         salt,
         createdAt: Date.now(),
         lastLogin: null,
-        isVisibleInDirectory: true,
+        isVisibleInDirectory: false, // ✨ ИЗМЕНЕНО: По умолчанию скрыт из списка
         status: 'offline',
         activeChat: null,
         devices: new Map()
@@ -407,6 +407,23 @@ function handleDeleteChat(ws, username, { chatName }) {
     ws.send(JSON.stringify({ type: 'chat_deleted', chatName, message: 'Чат удалён локально' }));
 }
 
+// ✨ ИЗМЕНЕНО: Обработка подтверждения прочтения сообщений
+function handleMessageRead(ws, sender, { from, timestamp }) {
+    const recipient = users.get(from);
+    if (!recipient) return;
+
+    // Отправляем подтверждение прочтения отправителю
+    for (const [_, device] of recipient.devices.entries()) {
+        if (device.ws?.readyState === WebSocket.OPEN) {
+            device.ws.send(JSON.stringify({
+                type: 'message_read_receipt',
+                from: sender,
+                timestamp: timestamp
+            }));
+        }
+    }
+}
+
 function handleUpdateVisibility(ws, username, { isVisible }) {
     const user = users.get(username);
     if (!user) return;
@@ -490,6 +507,10 @@ wss.on('connection', (ws, req) => {
                 break;
             case 'delete_chat':
                 if (session) handleDeleteChat(ws, username, data);
+                break;
+            // ✨ ИЗМЕНЕНО: Обработка подтверждения прочтения
+            case 'message_read':
+                if (session) handleMessageRead(ws, username, data);
                 break;
             case 'ping':
                 ws.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
