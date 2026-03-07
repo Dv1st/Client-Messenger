@@ -97,6 +97,9 @@ const DOM = {
     decryptPanel: null,
     decryptKeyBox: null,
     decryptBtn: null,
+    attachFileBtn: null,
+    fileInput: null,
+    filePreviewContainer: null,
 
     // Настройки
     themeSelect: null,
@@ -136,6 +139,13 @@ function initDOM() {
         DOM[id] = el;
     });
 }
+
+// ============================================================================
+// 🔹 Глобальные переменные для файлов
+// ============================================================================
+let selectedFiles = []; // Массив выбранных файлов для отправки
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB макс. размер файла
+const MAX_FILES_PER_MESSAGE = 5; // Макс. количество файлов в одном сообщении
 
 // ============================================================================
 // 🔹 Утилиты безопасности
@@ -681,12 +691,12 @@ function handleMessageReceive(data) {
         console.warn('⚠️ handleMessageReceive: invalid sender');
         return;
     }
-    
+
     if (!data.text || typeof data.text !== 'string') {
         console.warn('⚠️ handleMessageReceive: invalid text');
         return;
     }
-    
+
     if (!data.timestamp || typeof data.timestamp !== 'number') {
         console.warn('⚠️ handleMessageReceive: invalid timestamp');
         return;
@@ -700,7 +710,8 @@ function handleMessageReceive(data) {
         encrypted: data.encrypted || false,
         hint: data.hint || null,
         deliveryStatus: data.sender === currentUser ? 'sent' : 'delivered',
-        replyTo: data.replyTo || null
+        replyTo: data.replyTo || null,
+        files: data.files || null
     };
 
     const chatName = data.privateTo || 'general';
@@ -783,6 +794,17 @@ function initChat() {
     }
 
     if (DOM.decryptBtn) DOM.decryptBtn.addEventListener('click', decryptMessage);
+
+    // 📎 Обработка прикрепления файлов
+    if (DOM.attachFileBtn) {
+        DOM.attachFileBtn.addEventListener('click', () => {
+            if (DOM.fileInput) DOM.fileInput.click();
+        });
+    }
+
+    if (DOM.fileInput) {
+        DOM.fileInput.addEventListener('change', handleFileSelect);
+    }
 
     // Поиск с debounce
     if (DOM.searchBox) {
@@ -1771,7 +1793,7 @@ function selectGroup(groupId) {
     }
 
     selectedGroup = groupId;
-    selectedUser = null; // Сбрасываем выбранного пользователя
+    selectedUser = null; // Сбрасываем выбранног�� пользователя
 
     if (DOM.chatTitle) {
         DOM.chatTitle.textContent = '👥 ' + group.name;
@@ -1823,6 +1845,7 @@ function showCreateGroupModal() {
 
 /**
  * Рендеринг выбора участников группы
+ * Показывает только активных пользователей и тех, кто виден в списке пользователей
  */
 function renderGroupMembersSelect() {
     if (!DOM.groupMembersSelect) return;
@@ -1833,6 +1856,16 @@ function renderGroupMembersSelect() {
 
     users.forEach(user => {
         if (user.name === currentUser) return; // Не показываем текущего пользователя
+
+        // ✨ Показываем только:
+        // 1. Пользователей с активным чатом (activeChat === currentUser)
+        // 2. Пользователей, которые видны в списке (isVisibleInDirectory === true)
+        const isActiveChat = user.activeChat === currentUser;
+        const isVisibleInDirectory = user.isVisibleInDirectory === true;
+
+        if (!isActiveChat && !isVisibleInDirectory) {
+            return; // Пропускаем пользователя
+        }
 
         const item = document.createElement('div');
         item.className = 'group-member-item';
@@ -1853,7 +1886,14 @@ function renderGroupMembersSelect() {
 
         const statusEl = document.createElement('span');
         statusEl.className = 'member-status';
-        statusEl.textContent = user.allowGroupInvite ? '✓ Доступен' : '✗ Запретил';
+        // Показываем статус доступности
+        if (!user.allowGroupInvite) {
+            statusEl.textContent = '✗ Запретил';
+        } else if (isActiveChat) {
+            statusEl.textContent = '✓ Активен';
+        } else if (isVisibleInDirectory) {
+            statusEl.textContent = '✓ В списке';
+        }
 
         item.appendChild(checkbox);
         item.appendChild(nameEl);
@@ -1983,7 +2023,8 @@ function handleGroupMessageReceive(data) {
         deliveryStatus: data.sender === currentUser ? 'sent' : 'delivered',
         replyTo: data.replyTo || null,
         groupId: groupId,
-        groupName: group.name
+        groupName: group.name,
+        files: data.files || null
     };
 
     // Сохраняем сообщение
@@ -2267,11 +2308,13 @@ function setUserFolder(username, folder) {
 // ============================================================================
 // 🔹 Отправка сообщений
 // ============================================================================
-function sendMessage() {
+async function sendMessage() {
     if (!DOM.messageBox) return;
 
     const text = DOM.messageBox.value.trim();
-    if (!text) return;
+    const hasFiles = selectedFiles.length > 0;
+
+    if (!text && !hasFiles) return;
 
     // Проверка на максимальную длину
     if (text.length > MESSAGE_MAX_LENGTH) {
@@ -2296,6 +2339,24 @@ function sendMessage() {
         hint = generateHint(key);
     }
 
+    // 📎 Обработка файлов
+    let filesData = [];
+    if (hasFiles) {
+        for (const file of selectedFiles) {
+            try {
+                const dataUrl = await readFileAsDataURL(file);
+                filesData.push({
+                    name: file.name,
+                    type: file.type,
+                    size: file.size,
+                    data: dataUrl
+                });
+            } catch (e) {
+                console.error('❌ Error reading file:', file.name, e);
+            }
+        }
+    }
+
     // 👥 Отправка сообщения в группу
     if (selectedGroup) {
         const groupMessage = {
@@ -2309,7 +2370,8 @@ function sendMessage() {
                 timestamp: replyToMessage.timestamp,
                 sender: replyToMessage.sender,
                 text: replyToMessage.text
-            } : null
+            } : null,
+            files: filesData.length > 0 ? filesData : null
         };
 
         if (sendToServer(groupMessage)) {
@@ -2322,7 +2384,8 @@ function sendMessage() {
                 hint,
                 deliveryStatus: 'pending',
                 replyTo: groupMessage.replyTo,
-                groupId: selectedGroup
+                groupId: selectedGroup,
+                files: filesData
             }, true);
 
             const group = groups.find(g => g.id === selectedGroup);
@@ -2337,12 +2400,14 @@ function sendMessage() {
                     deliveryStatus: 'pending',
                     replyTo: groupMessage.replyTo,
                     groupId: selectedGroup,
-                    groupName: group.name
+                    groupName: group.name,
+                    files: filesData
                 });
             }
 
             DOM.messageBox.value = '';
             DOM.messageBox.style.height = 'auto';
+            clearSelectedFiles();
             scrollToBottom();
         }
         return;
@@ -2359,7 +2424,8 @@ function sendMessage() {
             timestamp: replyToMessage.timestamp,
             sender: replyToMessage.sender,
             text: replyToMessage.text
-        } : null
+        } : null,
+        files: filesData.length > 0 ? filesData : null
     };
 
     if (sendToServer(message)) {
@@ -2371,7 +2437,8 @@ function sendMessage() {
             encrypted: encrypt,
             hint,
             deliveryStatus: 'pending',
-            replyTo: message.replyTo
+            replyTo: message.replyTo,
+            files: filesData
         }, true);
 
         if (selectedUser) {
@@ -2383,7 +2450,8 @@ function sendMessage() {
                 encrypted: encrypt,
                 hint: encrypt ? generateHint(key) : null,
                 deliveryStatus: 'pending',
-                replyTo: message.replyTo
+                replyTo: message.replyTo,
+                files: filesData
             });
 
             // ✨ Добавляем чат в активные
@@ -2404,9 +2472,23 @@ function sendMessage() {
             DOM.encryptKeyBox.classList.add('hidden');
             DOM.encryptKeyBox.value = '';
         }
+
+        clearSelectedFiles();
     } else {
         showStatus('❌ Не удалось отправить');
     }
+}
+
+/**
+ * Чтение файла как DataURL
+ */
+function readFileAsDataURL(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => resolve(e.target.result);
+        reader.onerror = (e) => reject(e);
+        reader.readAsDataURL(file);
+    });
 }
 
 // ============================================================================
@@ -2439,24 +2521,42 @@ function createMessageElement(data, isOwn = false) {
     if (data.replyTo) {
         const replyEl = document.createElement('div');
         replyEl.className = 'message-reply';
-        
+
         const replySender = document.createElement('span');
         replySender.className = 'reply-sender';
         replySender.textContent = escapeHtml(data.replyTo.sender || '');
         replyEl.appendChild(replySender);
-        
+
         const replyPreview = document.createElement('span');
         replyPreview.className = 'reply-preview';
         replyPreview.textContent = escapeHtml((data.replyTo.text || '').substring(0, 50));
         replyEl.appendChild(replyPreview);
-        
+
         message.appendChild(replyEl);
     }
 
-    const textEl = document.createElement('div');
-    textEl.className = 'text';
-    textEl.textContent = displayText;
-    message.appendChild(textEl);
+    // Текст сообщения
+    if (data.text) {
+        const textEl = document.createElement('div');
+        textEl.className = 'text';
+        textEl.textContent = displayText;
+        message.appendChild(textEl);
+    }
+
+    // 📎 Отображение файлов
+    if (data.files && data.files.length > 0) {
+        const filesContainer = document.createElement('div');
+        filesContainer.className = 'message-files';
+        
+        data.files.forEach(fileData => {
+            const fileWrapper = document.createElement('div');
+            fileWrapper.className = 'message-file-wrapper';
+            fileWrapper.innerHTML = createFileHtml(fileData);
+            filesContainer.appendChild(fileWrapper);
+        });
+        
+        message.appendChild(filesContainer);
+    }
 
     const metaEl = document.createElement('div');
     metaEl.className = 'meta';
@@ -3189,7 +3289,7 @@ function decryptMessage() {
         alert('⚠️ Сообщение не выбрано');
         return;
     }
-    
+
     const messageEl = DOM.messagesList.children[messageIndex];
 
     if (messageEl && messageEl.dataset.encrypted === 'true') {
@@ -3209,6 +3309,220 @@ function decryptMessage() {
             alert('❌ Неверный ключ');
         }
     }
+}
+
+// ============================================================================
+// 📎 Обработка файлов
+// ============================================================================
+
+/**
+ * Обработка выбора файлов
+ */
+function handleFileSelect(event) {
+    const files = Array.from(event.target.files || []);
+    if (files.length === 0) return;
+
+    const remainingSlots = MAX_FILES_PER_MESSAGE - selectedFiles.length;
+    if (remainingSlots <= 0) {
+        alert(`⚠️ Максимум ${MAX_FILES_PER_MESSAGE} файлов в одном сообщении`);
+        return;
+    }
+
+    const filesToAdd = files.slice(0, remainingSlots);
+
+    for (const file of filesToAdd) {
+        // Проверка размера
+        if (file.size > MAX_FILE_SIZE) {
+            alert(`⚠️ Файл "${file.name}" слишком большой (макс. 10MB)`);
+            continue;
+        }
+
+        // Проверка дубликатов
+        const isDuplicate = selectedFiles.some(f => 
+            f.name === file.name && f.size === file.size && f.lastModified === file.lastModified
+        );
+        if (isDuplicate) {
+            continue;
+        }
+
+        selectedFiles.push(file);
+    }
+
+    renderFilePreview();
+
+    // Очищаем input для возможности повторного выбора того же файла
+    if (DOM.fileInput) {
+        DOM.fileInput.value = '';
+    }
+}
+
+/**
+ * Рендеринг предпросмотра файлов
+ */
+function renderFilePreview() {
+    if (!DOM.filePreviewContainer) return;
+
+    if (selectedFiles.length === 0) {
+        DOM.filePreviewContainer.classList.add('hidden');
+        DOM.filePreviewContainer.innerHTML = '';
+        return;
+    }
+
+    DOM.filePreviewContainer.classList.remove('hidden');
+    DOM.filePreviewContainer.innerHTML = '';
+
+    selectedFiles.forEach((file, index) => {
+        const item = document.createElement('div');
+        item.className = 'file-preview-item';
+
+        // Предпросмотр для изображений
+        if (file.type.startsWith('image/')) {
+            const img = document.createElement('img');
+            img.className = 'file-preview-image';
+            img.alt = file.name;
+            
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+            item.appendChild(img);
+        } else {
+            // Иконка для других файлов
+            const icon = document.createElement('span');
+            icon.className = 'file-icon';
+            icon.textContent = getFileIcon(file.type);
+            item.appendChild(icon);
+        }
+
+        // Информация о файле
+        const info = document.createElement('div');
+        info.className = 'file-info';
+
+        const nameEl = document.createElement('span');
+        nameEl.className = 'file-name';
+        nameEl.textContent = file.name;
+        info.appendChild(nameEl);
+
+        const sizeEl = document.createElement('span');
+        sizeEl.className = 'file-size';
+        sizeEl.textContent = formatFileSize(file.size);
+        info.appendChild(sizeEl);
+
+        item.appendChild(info);
+
+        // Кнопка удаления
+        const removeBtn = document.createElement('button');
+        removeBtn.className = 'remove-file-btn';
+        removeBtn.type = 'button';
+        removeBtn.textContent = '×';
+        removeBtn.title = 'Удалить файл';
+        removeBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            removeFile(index);
+        });
+        item.appendChild(removeBtn);
+
+        DOM.filePreviewContainer.appendChild(item);
+    });
+}
+
+/**
+ * Удаление файла из списка
+ */
+function removeFile(index) {
+    selectedFiles.splice(index, 1);
+    renderFilePreview();
+}
+
+/**
+ * Очистка выбранных файлов
+ */
+function clearSelectedFiles() {
+    selectedFiles = [];
+    renderFilePreview();
+}
+
+/**
+ * Получение иконки для типа файла
+ */
+function getFileIcon(mimeType) {
+    if (!mimeType) return '📄';
+    if (mimeType.startsWith('image/')) return '🖼️';
+    if (mimeType.startsWith('video/')) return '🎥';
+    if (mimeType.startsWith('audio/')) return '🎵';
+    if (mimeType.includes('pdf')) return '📕';
+    if (mimeType.includes('word') || mimeType.includes('document')) return '📘';
+    if (mimeType.includes('zip') || mimeType.includes('rar')) return '📦';
+    if (mimeType.includes('text')) return '📝';
+    return '📄';
+}
+
+/**
+ * Форматирование размера файла
+ */
+function formatFileSize(bytes) {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i];
+}
+
+/**
+ * Создание HTML для файла в сообщении
+ */
+function createFileHtml(fileData) {
+    const { type, name, size, data } = fileData;
+    const sizeStr = formatFileSize(size);
+
+    if (type.startsWith('image/')) {
+        return `
+            <div class="message-file message-file-image">
+                <img src="${data}" alt="${escapeHtml(name)}" title="${escapeHtml(name)}">
+                <div class="file-name">${escapeHtml(name)} (${sizeStr})</div>
+            </div>
+        `;
+    }
+
+    if (type.startsWith('video/')) {
+        return `
+            <div class="message-file message-file-video">
+                <video controls>
+                    <source src="${data}" type="${escapeHtml(type)}">
+                    Ваш браузер не поддерживает видео.
+                </video>
+                <div class="file-name">${escapeHtml(name)} (${sizeStr})</div>
+            </div>
+        `;
+    }
+
+    if (type.startsWith('audio/')) {
+        return `
+            <div class="message-file message-file-audio">
+                <audio controls>
+                    <source src="${data}" type="${escapeHtml(type)}">
+                    Ваш браузер не поддерживает аудио.
+                </audio>
+                <div class="file-name">${escapeHtml(name)} (${sizeStr})</div>
+            </div>
+        `;
+    }
+
+    // Для остальных файлов
+    const icon = getFileIcon(type);
+    return `
+        <div class="message-file message-file-generic">
+            <span class="file-icon">${icon}</span>
+            <div class="file-details">
+                <span class="file-name">${escapeHtml(name)}</span>
+                <span class="file-size">${sizeStr}</span>
+            </div>
+            <a href="${data}" download="${escapeHtml(name)}" class="download-file-btn" title="Скачать">
+                ⬇️ Скачать
+            </a>
+        </div>
+    `;
 }
 
 // ============================================================================
@@ -3542,7 +3856,7 @@ function initHotkeys() {
             } else if (selectedUser) {
                 showGeneralChat();
             }
-            // Закрываем контекстное меню пользователей
+            // ��акрываем контекстное меню пользователей
             const contextMenu = document.querySelector('.context-menu');
             if (contextMenu) contextMenu.remove();
             // Закрываем контекстное меню сообщений

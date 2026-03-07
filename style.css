@@ -1192,6 +1192,201 @@ body.font-large { font-size: 16px; }
     transform: scale(0.95);
 }
 
+/* Кнопка прикрепления файлов */
+.attach-file-btn {
+    width: 44px;
+    height: 44px;
+    background: var(--element-bg);
+    border: none;
+    border-radius: var(--border-radius-md);
+    color: var(--text-primary);
+    font-size: 20px;
+    cursor: pointer;
+    transition: background var(--transition-fast), transform var(--transition-fast);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.attach-file-btn:hover {
+    background: var(--accent);
+    color: white;
+}
+
+.attach-file-btn:active {
+    transform: scale(0.95);
+}
+
+/* Контейнер предпросмотра файлов */
+.file-preview-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px 0;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.file-preview-item {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: var(--element-bg);
+    border-radius: var(--border-radius-sm);
+    border: 1px solid var(--border-color);
+    max-width: 300px;
+}
+
+.file-preview-item .file-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    overflow: hidden;
+}
+
+.file-preview-item .file-name {
+    font-size: 12px;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 200px;
+}
+
+.file-preview-item .file-size {
+    font-size: 10px;
+    color: var(--text-secondary);
+}
+
+.file-preview-item .file-preview-image {
+    max-width: 60px;
+    max-height: 60px;
+    object-fit: cover;
+    border-radius: 4px;
+}
+
+.file-preview-item .remove-file-btn {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    width: 20px;
+    height: 20px;
+    background: var(--error);
+    border: none;
+    border-radius: 50%;
+    color: white;
+    font-size: 12px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background var(--transition-fast);
+}
+
+.file-preview-item .remove-file-btn:hover {
+    background: var(--error-hover);
+}
+
+/* Стили для файлов в сообщениях */
+.message-file {
+    margin-top: 8px;
+    padding: 10px;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: var(--border-radius-sm);
+    display: inline-block;
+    max-width: 100%;
+}
+
+.message-file-image img {
+    max-width: 300px;
+    max-height: 300px;
+    border-radius: var(--border-radius-sm);
+    cursor: pointer;
+    transition: transform var(--transition-fast);
+}
+
+.message-file-image img:hover {
+    transform: scale(1.02);
+}
+
+.message-file-video video {
+    max-width: 400px;
+    max-height: 300px;
+    border-radius: var(--border-radius-sm);
+}
+
+.message-file-audio audio {
+    max-width: 300px;
+}
+
+.message-file-generic {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    background: var(--element-bg);
+    border-radius: var(--border-radius-sm);
+    min-width: 200px;
+}
+
+.message-file-generic .file-icon {
+    font-size: 32px;
+}
+
+.message-file-generic .file-details {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    overflow: hidden;
+}
+
+.message-file-generic .file-name {
+    font-size: 13px;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.message-file-generic .file-size {
+    font-size: 11px;
+    color: var(--text-secondary);
+}
+
+.message-file-generic .download-file-btn {
+    padding: 6px 12px;
+    background: var(--accent);
+    border: none;
+    border-radius: var(--border-radius-sm);
+    color: white;
+    font-size: 12px;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background var(--transition-fast);
+}
+
+.message-file-generic .download-file-btn:hover {
+    background: var(--accent-hover);
+}
+
+/* Контейнер для нескольких файлов в сообщении */
+.message-files {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+}
+
+.message-file-wrapper {
+    display: block;
+}
+
 /* Панель расшифровки */
 .decrypt-panel {
     margin-top: 8px;

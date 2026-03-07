@@ -172,11 +172,18 @@
 
                 <!-- Панель ввода сообщения -->
                 <footer class="input-panel bottom hidden" id="inputPanel">
+                    <!-- Предпросмотр файлов -->
+                    <div id="filePreviewContainer" class="file-preview-container hidden" role="region" aria-label="Прикреплённые файлы"></div>
+                    
                     <div class="input-wrapper">
                         <textarea id="messageBox" placeholder="Введите сообщение..." rows="1" aria-label="Поле ввода сообщения" maxlength="10000"></textarea>
                         <div class="input-actions">
                             <input type="text" id="encryptKeyBox" placeholder="Ключ..." class="hidden encrypt-input" aria-label="Ключ шифрования" autocomplete="off">
                             <div class="buttons-group">
+                                <!-- Кнопка прикрепления файлов -->
+                                <button id="attachFileBtn" class="attach-file-btn" type="button" title="Прикрепить файл" aria-label="Прикрепить файл">📎</button>
+                                <!-- Скрытый input для файлов -->
+                                <input type="file" id="fileInput" class="hidden" aria-label="Выбрать файл" accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt,.zip,.rar" multiple>
                                 <label class="encrypt-toggle" title="Шифрование">
                                     <input type="checkbox" id="encryptCheckBox" aria-label="Включить шифрование">
                                 </label>

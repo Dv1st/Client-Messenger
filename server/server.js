@@ -355,7 +355,45 @@ function handleLogout(ws, tokenId, isDisconnect = false) {
 // ============================================================================
 // 💬 Сообщения
 // ============================================================================
-function handleMessage(ws, sender, { text, privateTo, timestamp, encrypted, hint, replyTo }) {
+
+// 🔒 Максимальный размер файла (10MB)
+const MAX_FILE_SIZE = 10 * 1024 * 1024;
+const MAX_FILES_PER_MESSAGE = 5;
+
+/**
+ * Валидация файлов
+ */
+function validateFiles(files) {
+    if (!Array.isArray(files)) return null;
+    if (files.length === 0) return null;
+    if (files.length > MAX_FILES_PER_MESSAGE) return null;
+
+    const validFiles = [];
+    for (const file of files) {
+        if (!file || typeof file !== 'object') continue;
+        if (!file.name || typeof file.name !== 'string') continue;
+        if (!file.type || typeof file.type !== 'string') continue;
+        if (!file.data || typeof file.data !== 'string') continue;
+        if (!file.size || typeof file.size !== 'number') continue;
+
+        // Проверка размера
+        if (file.size > MAX_FILE_SIZE) continue;
+
+        // Проверка data URL
+        if (!file.data.startsWith('data:')) continue;
+
+        validFiles.push({
+            name: file.name.substring(0, 255),
+            type: file.type.substring(0, 100),
+            size: file.size,
+            data: file.data.substring(0, MAX_FILE_SIZE * 2)
+        });
+    }
+
+    return validFiles.length > 0 ? validFiles : null;
+}
+
+function handleMessage(ws, sender, { text, privateTo, timestamp, encrypted, hint, replyTo, files }) {
     // 🔒 Строгая валидация типа sender
     if (!sender || typeof sender !== 'string' || sender.length > USERNAME_MAX_LENGTH) {
         console.warn(`🚫 Invalid sender from ${getClientIp(ws)}`);
@@ -392,6 +430,9 @@ function handleMessage(ws, sender, { text, privateTo, timestamp, encrypted, hint
         }
     }
 
+    // 📎 Валидация файлов
+    const validFiles = validateFiles(files);
+
     const user = users.get(sender);
     if (user) {
         const oldActiveChat = user.activeChat;
@@ -416,7 +457,8 @@ function handleMessage(ws, sender, { text, privateTo, timestamp, encrypted, hint
         timestamp: timestamp || Date.now(),
         encrypted: encrypted || false,
         hint: hint || null,
-        replyTo: replyTo || null
+        replyTo: replyTo || null,
+        files: validFiles
     };
 
     try {
@@ -759,7 +801,7 @@ function handleRemoveMemberFromGroup(ws, username, { groupId, member }) {
 /**
  * Отправка сообщения в группу
  */
-function handleGroupMessage(ws, sender, { groupId, text, timestamp, encrypted, hint, replyTo }) {
+function handleGroupMessage(ws, sender, { groupId, text, timestamp, encrypted, hint, replyTo, files }) {
     const user = users.get(sender);
     if (!user) {
         return ws.send(JSON.stringify({ type: 'error', message: 'Требуется авторизация' }));
@@ -782,6 +824,9 @@ function handleGroupMessage(ws, sender, { groupId, text, timestamp, encrypted, h
         return ws.send(JSON.stringify({ type: 'error', message: 'Недопустимое содержимое' }));
     }
 
+    // 📎 Валидация файлов
+    const validFiles = validateFiles(files);
+
     const message = {
         type: 'receive_group_message',
         sender,
@@ -791,7 +836,8 @@ function handleGroupMessage(ws, sender, { groupId, text, timestamp, encrypted, h
         timestamp: timestamp || Date.now(),
         encrypted: encrypted || false,
         hint: hint || null,
-        replyTo: replyTo || null
+        replyTo: replyTo || null,
+        files: validFiles
     };
 
     group.lastMessage = Date.now();
