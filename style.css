@@ -1268,6 +1268,14 @@ body.font-large { font-size: 16px; }
     border-radius: 4px;
 }
 
+.file-preview-item .file-icon {
+    font-size: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 40px;
+}
+
 .file-preview-item .remove-file-btn {
     position: absolute;
     top: -6px;

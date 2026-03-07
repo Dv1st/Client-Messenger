@@ -128,7 +128,9 @@ function initDOM() {
         'accentColorSelect', 'messageColorSelect', 'fontSizeSelect', 'showInDirectory',
         'allowGroupInvite', 'soundNotify', 'pushNotify', 'notificationSound', 'currentUserLabel',
         'collapseGroupsBtn', 'addGroupBtn', 'createGroupModal', 'closeCreateGroup',
-        'groupNameInput', 'groupMembersSelect', 'createGroupConfirmBtn', 'createGroupStatus'
+        'groupNameInput', 'groupMembersSelect', 'createGroupConfirmBtn', 'createGroupStatus',
+        // 📎 Элементы для работы с файлами
+        'attachFileBtn', 'fileInput', 'filePreviewContainer'
     ];
 
     ids.forEach(id => {
@@ -797,13 +799,25 @@ function initChat() {
 
     // 📎 Обработка прикрепления файлов
     if (DOM.attachFileBtn) {
-        DOM.attachFileBtn.addEventListener('click', () => {
-            if (DOM.fileInput) DOM.fileInput.click();
+        DOM.attachFileBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            console.log('📎 Attach button clicked');
+            if (DOM.fileInput) {
+                DOM.fileInput.click();
+                console.log('📎 File input clicked');
+            } else {
+                console.error('❌ File input not found');
+            }
         });
+    } else {
+        console.error('❌ Attach file button not found');
     }
 
     if (DOM.fileInput) {
         DOM.fileInput.addEventListener('change', handleFileSelect);
+        console.log('📎 File input listener attached');
+    } else {
+        console.error('❌ File input not found');
     }
 
     // Поиск с debounce
