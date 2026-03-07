@@ -210,6 +210,86 @@ body.font-large { font-size: 16px; }
     border-right: 1px solid var(--element-bg);
     display: flex;
     flex-direction: column;
+    position: relative;
+    transition: width 0.3s ease, transform 0.3s ease;
+    flex-shrink: 0;
+}
+
+/* ✨ ИЗМЕНЕНО: Кнопка переключения sidebar */
+.sidebar-toggle {
+    position: absolute;
+    top: 50%;
+    right: -12px;
+    transform: translateY(-50%);
+    width: 24px;
+    height: 40px;
+    background: var(--accent);
+    border: none;
+    border-radius: 12px;
+    color: white;
+    font-size: 12px;
+    cursor: pointer;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.3s ease;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.sidebar-toggle:hover {
+    background: var(--accent-hover);
+    right: -14px;
+}
+
+.sidebar.collapsed .sidebar-toggle {
+    transform: translateY(-50%) rotate(180deg);
+}
+
+/* ✨ ИЗМЕНЕНО: Свернутый sidebar */
+.sidebar.collapsed {
+    width: 70px;
+}
+
+.sidebar.collapsed .chat-folders,
+.sidebar.collapsed .search-box,
+.sidebar.collapsed .folder-btn,
+.sidebar.collapsed .current-user .user-label,
+.sidebar.collapsed .settings-btn {
+    display: none;
+}
+
+.sidebar.collapsed .users-list {
+    padding: 8px 4px;
+}
+
+.sidebar.collapsed .user-item {
+    justify-content: center;
+    padding: 10px 4px;
+}
+
+.sidebar.collapsed .user-item .name,
+.sidebar.collapsed .user-item .action-buttons,
+.sidebar.collapsed .user-item .status {
+    display: none;
+}
+
+.sidebar.collapsed .user-item::before {
+    content: '👤';
+    font-size: 24px;
+}
+
+.sidebar.collapsed .sidebar-footer {
+    justify-content: center;
+    padding: 12px 4px;
+}
+
+.sidebar.collapsed .current-user {
+    display: none;
+}
+
+.sidebar.collapsed .settings-btn {
+    display: flex;
 }
 
 /* Папки - ✨ ИЗМЕНЕНО: Упрощённый стиль для заголовка */
@@ -460,6 +540,68 @@ body.font-large { font-size: 16px; }
     flex-shrink: 0;
 }
 
+/* ✨ ИЗМЕНЕНО: Кнопка назад для мобильной версии */
+.back-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    background: var(--element-bg);
+    border: none;
+    border-radius: 50%;
+    color: var(--text-primary);
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+}
+
+.back-btn:hover {
+    background: var(--accent);
+    color: white;
+}
+
+.back-btn.hidden {
+    display: none;
+}
+
+/* ✨ ИЗМЕНЕНО: Статус пользователя в заголовке чата */
+.chat-user-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    background: var(--element-bg);
+    border-radius: 12px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-left: auto;
+}
+
+.chat-user-status.hidden {
+    display: none;
+}
+
+.chat-user-status .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--status-offline);
+}
+
+.chat-user-status.online .status-dot {
+    background: var(--status-online);
+}
+
+.chat-user-status.in-chat .status-dot {
+    background: var(--status-in-chat);
+}
+
+.chat-user-status.offline .status-dot {
+    background: var(--status-offline);
+}
+
 .status-indicator {
     width: 14px;
     height: 14px;
@@ -641,6 +783,61 @@ body.font-large { font-size: 16px; }
     flex-direction: column;
     gap: 8px;
     min-height: 0; /* Важно для flex-контейнера */
+    position: relative;
+}
+
+/* ✨ ИЗМЕНЕНО: Кнопка прокрутки вниз */
+.scroll-to-bottom-btn {
+    position: absolute;
+    bottom: 80px;
+    right: 20px;
+    width: 50px;
+    height: 50px;
+    background: var(--accent);
+    border: none;
+    border-radius: 50%;
+    color: white;
+    font-size: 14px;
+    cursor: pointer;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    transition: all 0.3s ease;
+}
+
+.scroll-to-bottom-btn:hover {
+    background: var(--accent-hover);
+    transform: scale(1.1);
+}
+
+.scroll-to-bottom-btn.hidden {
+    display: none;
+}
+
+.scroll-to-bottom-btn .scroll-icon {
+    font-size: 16px;
+    animation: bounce 1s infinite;
+}
+
+.scroll-to-bottom-btn .unread-count {
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    background: #ff4444;
+    color: white;
+    font-size: 11px;
+    font-weight: bold;
+    padding: 2px 6px;
+    border-radius: 10px;
+    min-width: 20px;
+    text-align: center;
+}
+
+@keyframes bounce {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-5px); }
 }
 
 .messages-list.hidden { display: none; }
@@ -685,7 +882,31 @@ body.font-large { font-size: 16px; }
 }
 
 .message .time { font-size: 10px; color: var(--text-secondary); opacity: 0.8; }
-.message .checks { font-size: 10px; color: var(--success); }
+
+/* ✨ ИЗМЕНЕНО: Статусы доставки сообщений */
+.message .checks {
+    font-size: 10px;
+    color: var(--text-secondary);
+    opacity: 0.7;
+}
+
+.message .checks.pending {
+    color: var(--text-secondary);
+    animation: pulse 1.5s infinite;
+}
+
+.message .checks.sent {
+    color: var(--text-secondary);
+}
+
+.message .checks.delivered {
+    color: var(--success);
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 0.5; }
+    50% { opacity: 1; }
+}
 
 /* ============================================================================
    🔹 Контекстное меню
@@ -816,7 +1037,25 @@ body.font-large { font-size: 16px; }
    🔹 Адаптивность
    ============================================================================ */
 @media (max-width: 768px) {
-    .sidebar { width: 280px; }
+    .sidebar { 
+        width: 280px;
+        position: absolute;
+        left: 0;
+        top: 0;
+        height: 100%;
+        z-index: 1000;
+        box-shadow: 2px 0 10px rgba(0, 0, 0, 0.3);
+    }
+    
+    /* ✨ ИЗМЕНЕНО: Скрытый sidebar на мобильном */
+    .sidebar.mobile-hidden {
+        transform: translateX(-100%);
+    }
+    
+    .sidebar-toggle {
+        display: none;
+    }
+    
     .login-container { width: 90%; padding: 30px; }
     .modal-content { width: 90%; }
 
@@ -832,4 +1071,19 @@ body.font-large { font-size: 16px; }
     }
 
     .encrypt-input { width: 100%; }
+}
+
+/* ✨ ИЗМЕНЕНО: Адаптивность для очень маленьких экранов */
+@media (max-width: 480px) {
+    .sidebar {
+        width: 100%;
+    }
+    
+    .chat-header h2 {
+        font-size: 16px;
+    }
+    
+    .chat-user-status {
+        display: none;
+    }
 }
