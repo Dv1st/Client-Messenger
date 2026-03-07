@@ -84,9 +84,10 @@ const DOM = {
     decryptPanel: null,
     decryptKeyBox: null,
     decryptBtn: null,
-    
+
     // Настройки
     themeSelect: null,
+    accentColorSelect: null,
     fontSizeSelect: null,
     showInDirectory: null,
     soundNotify: null,
@@ -106,7 +107,7 @@ function initDOM() {
         'inputPanel', 'chatPlaceholder', 'chatTitle', 'chatUserStatus', 'backBtn',
         'scrollToBottomBtn', 'unreadCount', 'messageBox', 'sendBtn', 'encryptCheckBox',
         'encryptKeyBox', 'decryptPanel', 'decryptKeyBox', 'decryptBtn', 'themeSelect',
-        'fontSizeSelect', 'showInDirectory', 'soundNotify', 'pushNotify',
+        'accentColorSelect', 'fontSizeSelect', 'showInDirectory', 'soundNotify', 'pushNotify',
         'notificationSound', 'currentUserLabel'
     ];
 
@@ -240,10 +241,10 @@ function showStatus(message, isError = true) {
 function handleLogin() {
     const usernameInput = document.getElementById('loginUsername');
     const passwordInput = document.getElementById('loginPassword');
-    
+
     if (!usernameInput || !passwordInput) return;
-    
-    const username = usernameInput.value.trim();
+
+    const username = escapeHtml(usernameInput.value.trim());
     const password = passwordInput.value;
 
     if (!username || !password) {
@@ -261,9 +262,19 @@ function handleLogin() {
         return;
     }
 
+    // Защита от XSS: дополнительная проверка
+    if (username.includes('<') || username.includes('>') || username.includes('script')) {
+        showStatus('Недопустимые символы в имени');
+        return;
+    }
+
     currentUser = username;
     window.currentUserPassword = password;
-    connectToServer({ type: 'login', username, password });
+    
+    // Небольшая задержка для защиты от перебора
+    setTimeout(() => {
+        connectToServer({ type: 'login', username, password });
+    }, 300);
 }
 
 /**
@@ -273,12 +284,17 @@ function handleRegister() {
     const usernameInput = document.getElementById('regUsername');
     const passwordInput = document.getElementById('regPassword');
     const confirmInput = document.getElementById('regConfirmPassword');
-    
+
     if (!usernameInput || !passwordInput || !confirmInput) return;
-    
-    const username = usernameInput.value.trim();
+
+    const username = escapeHtml(usernameInput.value.trim());
     const password = passwordInput.value;
     const confirm = confirmInput.value;
+
+    if (!username || !password) {
+        showStatus('Введите имя пользователя и пароль');
+        return;
+    }
 
     if (!isValidUsername(username)) {
         showStatus('Имя должно содержать 3-20 символов (латиница, цифры, _)');
@@ -290,6 +306,12 @@ function handleRegister() {
         return;
     }
 
+    // Защита от XSS
+    if (username.includes('<') || username.includes('>') || username.includes('script')) {
+        showStatus('Недопустимые символы в имени');
+        return;
+    }
+
     if (password !== confirm) {
         showStatus('Пароли не совпадают');
         return;
@@ -297,7 +319,11 @@ function handleRegister() {
 
     currentUser = username;
     window.currentUserPassword = password;
-    connectToServer({ type: 'register', username, password });
+    
+    // Небольшая задержка для защиты от перебора
+    setTimeout(() => {
+        connectToServer({ type: 'register', username, password });
+    }, 300);
 }
 
 // ============================================================================
@@ -382,7 +408,12 @@ function sendToServer(message) {
 // 🔹 Обработка сообщений сервера
 // ============================================================================
 function handleServerMessage(data) {
-    if (!data || typeof data.type !== 'string') return;
+    // Строгая валидация входящих данных
+    if (!data || typeof data !== 'object') return;
+    if (typeof data.type !== 'string') return;
+    
+    // Защита от потенциально опасных данных
+    if (data.type.length > 50) return;
 
     switch (data.type) {
         case 'register_success':
@@ -391,39 +422,62 @@ function handleServerMessage(data) {
         case 'register_error':
         case 'login_error':
         case 'error':
-            showStatus(data.message || 'Произошла ошибка');
+            showStatus(sanitizeMessageText(data.message || 'Произошла ошибка'), true);
             break;
         case 'login_success':
             handleLoginSuccess(data);
             break;
         case 'user_list':
-            updateUsersList(data.users || []);
+            if (Array.isArray(data.users)) {
+                updateUsersList(data.users);
+            }
             break;
         case 'user_online':
-            updateUserStatus(data.username, 'online', data.activeChat || null);
+            if (data.username && typeof data.username === 'string') {
+                updateUserStatus(data.username, 'online', data.activeChat || null);
+            }
             break;
         case 'user_offline':
-            updateUserStatus(data.username, 'offline', null);
+            if (data.username && typeof data.username === 'string') {
+                updateUserStatus(data.username, 'offline', null);
+            }
             break;
         case 'user_status_update':
-            updateUserStatus(data.username, data.status, data.activeChat || null);
+            if (data.username && typeof data.username === 'string') {
+                updateUserStatus(data.username, data.status, data.activeChat || null);
+            }
             break;
         case 'user_visibility_update':
-            updateUserVisibility(data.username, data.isVisible);
+            if (data.username && typeof data.isVisible === 'boolean') {
+                updateUserVisibility(data.username, data.isVisible);
+            }
             break;
         case 'receive_message':
-            handleMessageReceive(data);
+            if (data.sender && data.text && data.timestamp) {
+                handleMessageReceive(data);
+            }
             break;
         case 'message_confirmed':
-            updateMessageDeliveryStatus(data.timestamp, 'sent');
+            if (data.timestamp) {
+                updateMessageDeliveryStatus(data.timestamp, 'sent');
+            }
             break;
         case 'message_read_receipt':
-            updateMessageDeliveryStatus(data.timestamp, 'delivered');
+            if (data.timestamp) {
+                updateMessageDeliveryStatus(data.timestamp, 'delivered');
+            }
             break;
         // Обработка удаления сообщения
         case 'message_deleted':
-            handleRemoteMessageDelete(data.timestamp, data.deletedBy);
+            if (data.timestamp && data.deletedBy) {
+                handleRemoteMessageDelete(data.timestamp, data.deletedBy);
+            }
             break;
+        default:
+            // Игнорируем неизвестные типы сообщений
+            if (typeof data.type === 'string' && data.type.length <= 50) {
+                console.warn('⚠️ Unknown message type:', data.type.substring(0, 50));
+            }
     }
 }
 
@@ -432,15 +486,28 @@ function handleServerMessage(data) {
  * @param {Object} data - Данные ответа
  */
 function handleLoginSuccess(data) {
-    currentUser = data.username;
+    // Валидация данных входа
+    if (!data.username || typeof data.username !== 'string') {
+        console.error('❌ Invalid login data');
+        return;
+    }
+    
+    const sanitizedUsername = sanitizeMessageText(data.username.trim());
+    if (sanitizedUsername.length < 3 || sanitizedUsername.length > 20) {
+        console.error('❌ Invalid username length');
+        return;
+    }
+    
+    currentUser = sanitizedUsername;
+    
     if (typeof data.isVisibleInDirectory === 'boolean') {
         isVisibleInDirectory = data.isVisibleInDirectory;
     }
-    
+
     if (window.currentUserPassword) {
         saveAuthSession(currentUser, window.currentUserPassword);
     }
-    
+
     DOM.loginWindow?.classList.add('hidden');
     DOM.chatWindow?.classList.remove('hidden');
 
@@ -448,7 +515,7 @@ function handleLoginSuccess(data) {
         DOM.currentUserLabel.textContent = currentUser;
     }
 
-    console.log('✅ Connected');
+    console.log('✅ Connected:', currentUser);
     sendToServer({ type: 'get_users' });
     requestAudioPermission();
 }
@@ -654,34 +721,15 @@ function initUserListEvents() {
         const username = userItem.dataset.username;
         if (!username) return;
 
-        // Клик по кнопкам действий
-        if (e.target.closest('.pin-btn')) {
-            e.stopPropagation();
-            togglePin(username);
-            return;
-        }
-
-        if (e.target.closest('.delete-btn')) {
-            e.stopPropagation();
-            deleteChat(username, userItem);
-            return;
-        }
-
-        // Клик по имени пользователя
-        if (e.target.classList.contains('name')) {
-            selectUser(username);
-            return;
-        }
-
         // Клик по элементу пользователя
         selectUser(username);
     });
 
-    // Контекстное меню
+    // Контекстное меню (ПКМ) для доступа к функциям закрепить/удалить
     DOM.usersList?.addEventListener('contextmenu', (e) => {
         const userItem = e.target.closest('.user-item');
         if (!userItem) return;
-        
+
         e.preventDefault();
         const username = userItem.dataset.username;
         if (username) showFolderContextMenu(e, username);
@@ -692,17 +740,31 @@ function initUserListEvents() {
         const chatItem = e.target.closest('.active-chat-item');
         if (!chatItem) return;
 
-        const nameEl = chatItem.querySelector('.chat-name');
-        if (!nameEl) return;
+        const username = chatItem.dataset.username;
+        if (!username) return;
 
-        const username = nameEl.textContent;
-        
+        // Клик по кнопке закрепить
+        if (e.target.closest('.pin-btn')) {
+            e.stopPropagation();
+            togglePin(username);
+            return;
+        }
+
+        // Клик по кнопке удалить чат
+        if (e.target.closest('.delete-btn')) {
+            e.stopPropagation();
+            deleteChat(username, chatItem);
+            return;
+        }
+
+        // Клик по кнопке закрыть
         if (e.target.closest('.close-chat')) {
             e.stopPropagation();
             showGeneralChat();
             return;
         }
 
+        // Клик по элементу чата
         selectUser(username);
     });
 }
@@ -900,6 +962,31 @@ function updateUserVisibility(username, isVisible) {
 }
 
 /**
+ * Получить смайлик последнего сообщения пользователя
+ * @param {string} username - Имя пользователя
+ * @returns {string} - Смайлик сообщения
+ */
+function getLastMessageEmoji(username) {
+    const messages = loadMessagesFromStorage(username);
+    if (messages.length === 0) return '💬';
+    
+    const lastMessage = messages[messages.length - 1];
+    
+    // Если сообщение зашифровано
+    if (lastMessage.encrypted) {
+        return '🔒';
+    }
+    
+    // Если это наше сообщение
+    if (lastMessage.sender === currentUser) {
+        return '✉️';
+    }
+    
+    // Если сообщение от пользователя
+    return '💬';
+}
+
+/**
  * Рендеринг списка пользователей
  * Безопасная вставка данных с использованием textContent
  */
@@ -923,55 +1010,34 @@ function renderUsers() {
         item.className = 'user-item' + (selectedUser === userObj.name ? ' selected' : '');
         item.dataset.username = userObj.name;
 
-        // Определяем статус
+        // Определяем класс статуса (для CSS)
         let statusClass = 'offline';
-        let statusIcon = '⚫';
-
         if (selectedUser === userObj.name) {
             if (userObj.status === 'online') {
                 statusClass = 'online';
-                statusIcon = '🟢';
             } else if (userObj.status === 'in_chat') {
                 statusClass = 'in-chat';
-                statusIcon = '🔵';
             }
         }
 
         item.classList.add(statusClass);
 
+        // Получаем смайлик последнего сообщения вместо индикатора статуса
+        const messageEmoji = getLastMessageEmoji(userObj.name);
+
         // Создаём элементы безопасно (без innerHTML для пользовательских данных)
         const statusEl = document.createElement('span');
         statusEl.className = 'status';
-        statusEl.textContent = statusIcon;
+        statusEl.textContent = messageEmoji; // Смайлик сообщения вместо статуса
         statusEl.setAttribute('aria-hidden', 'true');
+        statusEl.title = 'Последнее сообщение';
 
         const nameEl = document.createElement('span');
         nameEl.className = 'name';
         nameEl.textContent = userObj.name; // Безопасная вставка через textContent
 
-        const actionButtons = document.createElement('div');
-        actionButtons.className = 'action-buttons';
-
-        const pinBtn = document.createElement('button');
-        pinBtn.className = 'action-btn pin-btn' + (userObj.isPinned ? ' pinned' : '');
-        pinBtn.type = 'button';
-        pinBtn.textContent = '📌';
-        pinBtn.title = 'Закрепить';
-        pinBtn.setAttribute('aria-label', 'Закрепить чат');
-
-        const deleteBtn = document.createElement('button');
-        deleteBtn.className = 'action-btn delete-btn';
-        deleteBtn.type = 'button';
-        deleteBtn.textContent = '🗑️';
-        deleteBtn.title = 'Удалить чат';
-        deleteBtn.setAttribute('aria-label', 'Удалить чат');
-
-        actionButtons.appendChild(pinBtn);
-        actionButtons.appendChild(deleteBtn);
-
         item.appendChild(statusEl);
         item.appendChild(nameEl);
-        item.appendChild(actionButtons);
 
         fragment.appendChild(item);
     });
@@ -1005,15 +1071,51 @@ function renderActiveChats() {
     activeChats.forEach(userObj => {
         const item = document.createElement('div');
         item.className = 'active-chat-item';
+        item.dataset.username = userObj.name;
 
+        // Отображаем статус вместо смайлика чата
         const chatIcon = document.createElement('span');
         chatIcon.className = 'chat-icon';
-        chatIcon.textContent = '💬';
         chatIcon.setAttribute('aria-hidden', 'true');
+
+        // Показываем статус пользователя
+        if (userObj.status === 'online') {
+            chatIcon.textContent = '🟢';
+            chatIcon.title = 'Онлайн';
+        } else if (userObj.status === 'in_chat') {
+            chatIcon.textContent = '🔵';
+            chatIcon.title = 'В чате';
+        } else {
+            chatIcon.textContent = '⚫';
+            chatIcon.title = 'Офлайн';
+        }
 
         const chatName = document.createElement('span');
         chatName.className = 'chat-name';
         chatName.textContent = userObj.name;
+
+        // Кнопки действий
+        const actionButtons = document.createElement('div');
+        actionButtons.className = 'chat-actions';
+
+        // Кнопка закрепить
+        const pinBtn = document.createElement('button');
+        pinBtn.className = 'chat-action-btn pin-btn' + (userObj.isPinned ? ' pinned' : '');
+        pinBtn.type = 'button';
+        pinBtn.textContent = '📌';
+        pinBtn.title = 'Закрепить';
+        pinBtn.setAttribute('aria-label', 'Закрепить чат');
+
+        // Кнопка удалить чат
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'chat-action-btn delete-btn';
+        deleteBtn.type = 'button';
+        deleteBtn.textContent = '🗑️';
+        deleteBtn.title = 'Удалить чат';
+        deleteBtn.setAttribute('aria-label', 'Удалить чат');
+
+        actionButtons.appendChild(pinBtn);
+        actionButtons.appendChild(deleteBtn);
 
         const closeBtn = document.createElement('button');
         closeBtn.className = 'close-chat';
@@ -1024,6 +1126,7 @@ function renderActiveChats() {
 
         item.appendChild(chatIcon);
         item.appendChild(chatName);
+        item.appendChild(actionButtons);
         item.appendChild(closeBtn);
 
         fragment.appendChild(item);
@@ -1964,6 +2067,14 @@ function initSettings() {
         });
     }
 
+    if (DOM.accentColorSelect) {
+        DOM.accentColorSelect.addEventListener('change', (e) => {
+            document.documentElement.style.setProperty('--accent', e.target.value);
+            document.documentElement.style.setProperty('--accent-hover', adjustColorBrightness(e.target.value, 20));
+            saveSettings();
+        });
+    }
+
     if (DOM.showInDirectory) {
         DOM.showInDirectory.addEventListener('change', (e) => {
             isVisibleInDirectory = e.target.checked;
@@ -1977,17 +2088,39 @@ function syncSettingsUI() {
     if (DOM.themeSelect) {
         DOM.themeSelect.value = document.documentElement.getAttribute('data-theme') || 'dark';
     }
-    
+
+    if (DOM.accentColorSelect) {
+        const currentAccent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+        if (currentAccent) {
+            DOM.accentColorSelect.value = currentAccent;
+        }
+    }
+
     if (DOM.fontSizeSelect) {
         let currentSize = '14';
         if (document.body.classList.contains('font-small')) currentSize = '12';
         else if (document.body.classList.contains('font-large')) currentSize = '16';
         DOM.fontSizeSelect.value = currentSize;
     }
-    
+
     if (DOM.showInDirectory) {
         DOM.showInDirectory.checked = isVisibleInDirectory;
     }
+}
+
+/**
+ * Изменение яркости цвета
+ * @param {string} hex - HEX цвет (#RRGGBB)
+ * @param {number} percent - Процент изменения (положительный = светлее, отрицательный = темнее)
+ * @returns {string} - Новый цвет в HEX
+ */
+function adjustColorBrightness(hex, percent) {
+    const num = parseInt(hex.replace('#', ''), 16);
+    const amt = Math.round(2.55 * percent);
+    const R = Math.max(0, Math.min(255, (num >> 16) + amt));
+    const G = Math.max(0, Math.min(255, ((num >> 8) & 0x00FF) + amt));
+    const B = Math.max(0, Math.min(255, (num & 0x0000FF) + amt));
+    return '#' + (0x1000000 + R * 0x10000 + G * 0x100 + B).toString(16).slice(1);
 }
 
 // ============================================================================
@@ -2027,6 +2160,26 @@ function initHotkeys() {
 // ============================================================================
 // 🔹 Авто-вход и сессии
 // ============================================================================
+
+/**
+ * Простое хеширование строки (не криптография, только для сессии!)
+ * @param {string} str - Строка для хеширования
+ * @returns {string} - Хеш
+ */
+function simpleHash(str) {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+        const char = str.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash & hash;
+    }
+    return Math.abs(hash).toString(16);
+}
+
+/**
+ * Автоматический вход по сохранённой сессии
+ * @returns {boolean} - Успешно ли выполнен вход
+ */
 function autoLogin() {
     try {
         const session = localStorage.getItem(AUTH_SESSION_KEY);
@@ -2034,11 +2187,11 @@ function autoLogin() {
             const sessionData = JSON.parse(session);
             const now = Date.now();
             const sessionAge = now - (sessionData.timestamp || 0);
-            const SESSION_MAX_AGE = 24 * 60 * 60 * 1000;
+            const SESSION_MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 дней
 
-            if (sessionAge < SESSION_MAX_AGE && sessionData.username) {
+            if (sessionAge < SESSION_MAX_AGE && sessionData.username && sessionData.passwordHash) {
                 currentUser = sessionData.username;
-                window.currentUserPassword = sessionData.passwordHash || sessionData.password || '';
+                window.currentUserPassword = atob(sessionData.passwordHash); // Декодируем пароль
                 connectToServer({
                     type: 'login',
                     username: currentUser,
@@ -2057,31 +2210,47 @@ function autoLogin() {
     return false;
 }
 
+/**
+ * Сохранение сессии пользователя
+ * @param {string} username - Имя пользователя
+ * @param {string} password - Пароль
+ */
 function saveAuthSession(username, password) {
     try {
         const sessionData = {
             username: username,
-            passwordHash: btoa(password),
+            passwordHash: btoa(password), // Кодируем пароль (не криптография!)
+            passwordHint: password.substring(0, 2) + '*'.repeat(Math.max(0, password.length - 2)),
             timestamp: Date.now()
         };
         localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(sessionData));
+        console.log('💾 Session saved for:', username);
     } catch (e) {
         console.error('❌ Save session error:', e);
     }
 }
 
+/**
+ * Выход из аккаунта
+ */
 function performLogout() {
+    // Закрываем модальное окно настроек
+    if (DOM.settingsModal) {
+        DOM.settingsModal.classList.add('hidden');
+    }
+
     sendToServer({ type: 'logout' });
-    
+
     if (socket) {
         socket.close(1000, 'User logout');
     }
-    
+
     localStorage.removeItem(AUTH_SESSION_KEY);
-    
+
     currentUser = null;
     selectedUser = null;
     users = [];
+    window.currentUserPassword = null;
 
     DOM.chatWindow?.classList.add('hidden');
     DOM.loginWindow?.classList.remove('hidden');
@@ -2091,7 +2260,7 @@ function performLogout() {
     if (loginUsername) loginUsername.value = '';
     if (loginPassword) loginPassword.value = '';
 
-    console.log('🔌 Disconnected');
+    console.log('🚪 User logged out');
 }
 
 // ============================================================================
@@ -2154,30 +2323,36 @@ function clearChatStorage(username) {
 }
 
 // ============================================================================
-// 🔹 Настройки (тема, шрифт)
+// 🔹 Настройки (тема, шрифт, цвет)
 // ============================================================================
 function loadSettings() {
     try {
         const settings = localStorage.getItem(STORAGE_KEYS.SETTINGS);
         if (settings) {
             const data = JSON.parse(settings);
-            
+
             if (data.theme) {
                 document.documentElement.setAttribute('data-theme', data.theme);
                 if (DOM.themeSelect) DOM.themeSelect.value = data.theme;
             }
-            
+
+            if (data.accentColor) {
+                document.documentElement.style.setProperty('--accent', data.accentColor);
+                document.documentElement.style.setProperty('--accent-hover', adjustColorBrightness(data.accentColor, 20));
+                if (DOM.accentColorSelect) DOM.accentColorSelect.value = data.accentColor;
+            }
+
             if (data.fontSize) {
                 document.body.classList.remove('font-small', 'font-medium', 'font-large');
                 document.body.classList.add('font-' + data.fontSize);
                 if (DOM.fontSizeSelect) DOM.fontSizeSelect.value = data.fontSize;
             }
-            
+
             if (typeof data.soundEnabled === 'boolean') {
                 soundEnabled = data.soundEnabled;
                 if (DOM.soundNotify) DOM.soundNotify.checked = data.soundEnabled;
             }
-            
+
             if (typeof data.isVisibleInDirectory === 'boolean') {
                 isVisibleInDirectory = data.isVisibleInDirectory;
                 if (DOM.showInDirectory) DOM.showInDirectory.checked = data.isVisibleInDirectory;
@@ -2192,6 +2367,7 @@ function saveSettings() {
     try {
         const settings = {
             theme: DOM.themeSelect?.value || 'dark',
+            accentColor: DOM.accentColorSelect?.value || '#7B2CBF',
             fontSize: DOM.fontSizeSelect?.value || '14',
             soundEnabled: DOM.soundNotify?.checked ?? true,
             isVisibleInDirectory: DOM.showInDirectory?.checked ?? false
