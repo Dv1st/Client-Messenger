@@ -54,12 +54,17 @@
     <div id="chatWindow" class="window hidden">
         <div class="chat-container">
             <!-- Левая панель -->
-            <div class="sidebar">
+            <div class="sidebar" id="sidebar">
+                <!-- ✨ ИЗМЕНЕНО: Кнопка сворачивания sidebar -->
+                <button class="sidebar-toggle" id="sidebarToggle" title="Свернуть/Развернуть" aria-label="Переключить боковую панель">
+                    <span class="toggle-icon">◀</span>
+                </button>
+                
                 <!-- ✨ ИЗМЕНЕНО: Заголовки разделов -->
                 <div class="chat-folders">
                     <button class="folder-btn active" data-folder="all">📋 Список пользователей</button>
                 </div>
-                
+
                 <!-- ✨ ИЗМЕНЕНО: Раздел "Чаты" -->
                 <div class="chat-folders" id="activeChatsFolder" style="border-top: 1px solid var(--element-bg); margin-top: 8px; padding-top: 8px;">
                     <button class="folder-btn" style="font-weight: 600;">💬 Активные чаты</button>
@@ -80,7 +85,7 @@
                 <div class="sidebar-footer">
                     <div class="current-user">
                         <span class="user-icon">👤</span>
-                        <span id="currentUserLabel">Пользователь</span>
+                        <span class="user-label" id="currentUserLabel">Пользователь</span>
                     </div>
                     <button id="settingsBtn" class="settings-btn" title="Настройки" aria-label="Настройки">⚙️</button>
                 </div>
@@ -90,8 +95,18 @@
             <div class="chat-main">
                 <!-- Заголовок -->
                 <div class="chat-header">
+                    <!-- ✨ ИЗМЕНЕНО: Кнопка назад для мобильной версии -->
+                    <button class="back-btn hidden" id="backBtn" title="Назад к списку чатов" aria-label="Назад">
+                        <span class="back-icon">◀</span>
+                    </button>
+                    
                     <div class="status-indicator" id="statusIndicator" aria-hidden="true"></div>
                     <h2 id="chatTitle">Чат</h2>
+                    <!-- ✨ ИЗМЕНЕНО: Индикатор статуса собеседника в заголовке -->
+                    <span id="chatUserStatus" class="chat-user-status hidden">
+                        <span class="status-dot"></span>
+                        <span class="status-text"></span>
+                    </span>
                 </div>
 
                 <!-- Заглушка -->
@@ -107,6 +122,12 @@
 
                 <!-- Сообщения -->
                 <div class="messages-list hidden" id="messagesList" role="log" aria-label="Сообщения"></div>
+                
+                <!-- ✨ ИЗМЕНЕНО: Кнопка прокрутки вниз с количеством непрочитанных -->
+                <button class="scroll-to-bottom-btn hidden" id="scrollToBottomBtn" title="Прокрутить вниз" aria-label="Новые сообщения">
+                    <span class="scroll-icon">▼</span>
+                    <span class="unread-count" id="unreadCount">0</span>
+                </button>
 
                 <!-- Панель ввода -->
                 <div class="input-panel bottom hidden" id="inputPanel">
