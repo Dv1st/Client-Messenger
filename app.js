@@ -22,6 +22,7 @@ const AUTH_SESSION_KEY = 'messenger_auth_session';
 
 // Расширенный функционал
 let isVisibleInDirectory = false;
+let allowGroupInvite = false; // ✨ Настройка приватности для групповых чатов
 let searchRateLimit = false;
 const RATE_LIMIT_DELAY = 500;
 
@@ -39,6 +40,13 @@ let replyToMessage = null;
 // ✨ Реакции на сообщения
 const REACTION_EMOJIS = ['❤️', '😂', '😮', '😢', '😡', '👍', '👎', '🎉', '🔥', '💯'];
 let userReactionFrequency = {}; // Хранение частоты использования реакций для текущего пользователя
+
+// 👥 Групповые чаты
+let groups = []; // Список групп текущего пользователя
+let selectedGroup = null; // Текущая выбранная группа
+
+// 🔒 Безопасное хранение пароля (не в открытом виде!)
+let userPasswordHash = null; // Хеш пароля для сессии
 
 // ============================================================================
 // 🔹 Константы
@@ -69,7 +77,8 @@ const DOM = {
     searchBox: null,
     usersList: null,
     activeChatsList: null,
-    
+    groupsList: null, // 👥 Список групп
+
     // Чат
     messagesList: null,
     inputPanel: null,
@@ -95,6 +104,7 @@ const DOM = {
     messageColorSelect: null,
     fontSizeSelect: null,
     showInDirectory: null,
+    allowGroupInvite: null, // ✨ Настройка для групповых чатов
     soundNotify: null,
     pushNotify: null,
     notificationSound: null,
@@ -108,12 +118,14 @@ const DOM = {
 function initDOM() {
     const ids = [
         'loginWindow', 'chatWindow', 'settingsModal', 'sidebar', 'sidebarToggle',
-        'sidebarTrigger', 'searchBox', 'usersList', 'activeChatsList', 'messagesList',
-        'inputPanel', 'chatPlaceholder', 'chatTitle', 'chatUserStatus', 'backBtn',
+        'sidebarTrigger', 'searchBox', 'usersList', 'activeChatsList', 'groupsList',
+        'messagesList', 'inputPanel', 'chatPlaceholder', 'chatTitle', 'chatUserStatus', 'backBtn',
         'scrollToBottomBtn', 'unreadCount', 'messageBox', 'sendBtn', 'encryptCheckBox',
         'encryptKeyBox', 'decryptPanel', 'decryptKeyBox', 'decryptBtn', 'themeSelect',
         'accentColorSelect', 'messageColorSelect', 'fontSizeSelect', 'showInDirectory',
-        'soundNotify', 'pushNotify', 'notificationSound', 'currentUserLabel'
+        'allowGroupInvite', 'soundNotify', 'pushNotify', 'notificationSound', 'currentUserLabel',
+        'collapseGroupsBtn', 'addGroupBtn', 'createGroupModal', 'closeCreateGroup',
+        'groupNameInput', 'groupMembersSelect', 'createGroupConfirmBtn', 'createGroupStatus'
     ];
 
     ids.forEach(id => {
@@ -288,7 +300,8 @@ function handleLogin() {
     }
 
     currentUser = username;
-    window.currentUserPassword = password;
+    // 🔒 Безопасное хранение: хешируем пароль перед сохранением
+    userPasswordHash = simpleHash(password + username); // Соль = username
 
     // Небольшая задержка для защиты от перебора
     setTimeout(() => {
@@ -337,7 +350,8 @@ function handleRegister() {
     }
 
     currentUser = username;
-    window.currentUserPassword = password;
+    // 🔒 Безопасное хранение: хешируем пароль перед сохранением
+    userPasswordHash = simpleHash(password + username); // Соль = username
 
     // Небольшая задержка для защиты от перебора
     setTimeout(() => {
@@ -407,11 +421,13 @@ function connectToServer(authMessage) {
                 reconnectAttempts++;
                 if (reconnectAttempts <= MAX_RECONNECT_ATTEMPTS) {
                     const delay = Math.min(2000 * reconnectAttempts, 10000);
+                    // 🔒 Используем хеш пароля для reconnection
+                    const passwordForReconnect = userPasswordHash || '***';
                     setTimeout(() => {
                         connectToServer({
                             type: 'login',
                             username: currentUser,
-                            password: window.currentUserPassword || '***'
+                            password: passwordForReconnect
                         });
                     }, delay);
                 }
@@ -440,7 +456,7 @@ function sendToServer(message) {
 // 🔹 Обработка сообщений сервера
 // ============================================================================
 function handleServerMessage(data) {
-    // Строгая валидация входящих данных
+    // 🔒 Строгая валидация входящих данных
     if (!data || typeof data !== 'object') {
         console.warn('⚠️ handleServerMessage: invalid data format');
         return;
@@ -450,7 +466,7 @@ function handleServerMessage(data) {
         return;
     }
 
-    // Защита от потенциально опасных данных
+    // 🔒 Защита от переполнения и подделки типа
     if (data.type.length > 50) {
         console.warn('⚠️ handleServerMessage: type too long');
         return;
@@ -521,6 +537,53 @@ function handleServerMessage(data) {
                     handleRemoteMessageReaction(data.timestamp, data);
                 }
                 break;
+            // 👥 Групповые чаты
+            case 'group_list':
+                if (Array.isArray(data.groups)) {
+                    groups = data.groups;
+                    renderGroups();
+                }
+                break;
+            case 'group_list_update':
+                if (Array.isArray(data.groups)) {
+                    groups = data.groups;
+                    renderGroups();
+                }
+                break;
+            case 'group_created':
+                if (data.group && data.group.id) {
+                    const groupIndex = groups.findIndex(g => g.id === data.group.id);
+                    if (groupIndex >= 0) {
+                        groups[groupIndex] = data.group;
+                    } else {
+                        groups.push(data.group);
+                    }
+                    renderGroups();
+                }
+                break;
+            case 'group_member_added':
+            case 'group_member_removed':
+            case 'group_member_left':
+                if (data.groupId) {
+                    updateGroupMembers(data.groupId, data.member, data.type);
+                }
+                break;
+            case 'group_deleted':
+                if (data.groupId) {
+                    groups = groups.filter(g => g.id !== data.groupId);
+                    renderGroups();
+                }
+                break;
+            case 'receive_group_message':
+                if (data.groupId && data.sender && data.text && data.timestamp) {
+                    handleGroupMessageReceive(data);
+                }
+                break;
+            case 'group_invite_permission_updated':
+                if (typeof data.allow === 'boolean') {
+                    allowGroupInvite = data.allow;
+                }
+                break;
             default:
                 // Игнорируем неизвестные типы сообщений
                 if (typeof data.type === 'string' && data.type.length <= 50) {
@@ -557,8 +620,9 @@ function handleLoginSuccess(data) {
         isVisibleInDirectory = data.isVisibleInDirectory;
     }
 
-    if (window.currentUserPassword) {
-        saveAuthSession(currentUser, window.currentUserPassword);
+    // 🔒 Сохраняем хеш пароля для сессии (не сам пароль!)
+    if (userPasswordHash) {
+        saveAuthSession(currentUser, userPasswordHash);
     }
 
     DOM.loginWindow?.classList.add('hidden');
@@ -570,6 +634,7 @@ function handleLoginSuccess(data) {
 
     console.log('✅ Connected:', currentUser);
     sendToServer({ type: 'get_users' });
+    sendToServer({ type: 'get_groups' }); // 👥 Запрашиваем список групп
     requestAudioPermission();
 }
 
@@ -762,12 +827,12 @@ function initSidebar() {
             if (usersSection) {
                 usersSection.classList.toggle('collapsed');
                 collapseUsersBtn.classList.toggle('collapsed');
-                
+
                 // Сохраняем состояние
                 localStorage.setItem('users_list_collapsed', usersSection.classList.contains('collapsed'));
             }
         });
-        
+
         // Загружаем сохранённое состояние
         const usersCollapsed = localStorage.getItem('users_list_collapsed') === 'true';
         if (usersCollapsed) {
@@ -777,6 +842,39 @@ function initSidebar() {
                 collapseUsersBtn.classList.add('collapsed');
             }
         }
+    }
+
+    // 👥 Кнопка сворачивания списка групп
+    if (DOM.collapseGroupsBtn) {
+        DOM.collapseGroupsBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const groupsSection = document.querySelector('.groups-section');
+            if (groupsSection) {
+                groupsSection.classList.toggle('collapsed');
+                DOM.collapseGroupsBtn.classList.toggle('collapsed');
+
+                // Сохраняем состояние
+                localStorage.setItem('groups_list_collapsed', groupsSection.classList.contains('collapsed'));
+            }
+        });
+
+        // Загружаем сохранённое состояние
+        const groupsCollapsed = localStorage.getItem('groups_list_collapsed') === 'true';
+        if (groupsCollapsed) {
+            const groupsSection = document.querySelector('.groups-section');
+            if (groupsSection) {
+                groupsSection.classList.add('collapsed');
+                DOM.collapseGroupsBtn.classList.add('collapsed');
+            }
+        }
+    }
+
+    // 👥 Кнопка создания группы
+    if (DOM.addGroupBtn) {
+        DOM.addGroupBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            showCreateGroupModal();
+        });
     }
 
     // Кнопка вызова sidebar для мобильных
@@ -878,6 +976,26 @@ function initUserListEvents() {
 
         // Клик по элементу чата
         selectUser(username);
+    });
+
+    // 👥 Делегирование для списка групп
+    DOM.groupsList?.addEventListener('click', (e) => {
+        const groupItem = e.target.closest('.group-item');
+        if (!groupItem) return;
+
+        const groupId = groupItem.dataset.groupId;
+        if (!groupId) return;
+
+        // Клик по кнопке удалить группу
+        if (e.target.closest('.delete-group-btn')) {
+            e.stopPropagation();
+            const groupName = groupItem.dataset.groupName;
+            deleteGroup(groupId, groupName);
+            return;
+        }
+
+        // Клик по элементу группы
+        selectGroup(groupId);
     });
 }
 
@@ -1028,6 +1146,7 @@ function updateUsersList(serverUsers) {
                     user.status = serverUser.status || (serverUser.online ? 'online' : 'offline');
                     user.activeChat = serverUser.activeChat || null;
                     user.isVisibleInDirectory = serverUser.isVisibleInDirectory !== false;
+                    user.allowGroupInvite = serverUser.allowGroupInvite || false; // 👥
                 }
             }
         });
@@ -1040,7 +1159,8 @@ function updateUsersList(serverUsers) {
                     isPinned: false,
                     status: serverUser.status || (serverUser.online ? 'online' : 'offline'),
                     activeChat: serverUser.activeChat || null,
-                    isVisibleInDirectory: serverUser.isVisibleInDirectory !== false
+                    isVisibleInDirectory: serverUser.isVisibleInDirectory !== false,
+                    allowGroupInvite: serverUser.allowGroupInvite || false // 👥
                 });
             }
         });
@@ -1191,11 +1311,11 @@ function renderActiveChats() {
 
     DOM.activeChatsList.innerHTML = '';
 
-    // ✨ Показываем пользователей, с которыми была переписка (activeChat) ИЛИ есть непрочитанные
+    // ✨ Показываем только тех пользователей, у кого activeChat === currentUser
+    // (с кем активно ведётся переписка)
     const activeChats = users.filter(u =>
         u.name !== currentUser &&
-        (u.activeChat === currentUser || getUnreadMessagesCount(u.name) > 0) &&
-        (u.status === 'online' || u.status === 'in_chat' || hasUnreadMessages(u.name))
+        u.activeChat === currentUser
     );
 
     if (activeChats.length === 0) {
@@ -1283,7 +1403,7 @@ function addChatToActive(username) {
     if (user) {
         user.activeChat = currentUser; // Показываем, что чат активен с текущим пользователем
         saveUsersToStorage();
-        renderActiveChats();
+        renderUsers(); // Перерисовываем и активных чаты, и список пользователей
     }
 }
 
@@ -1327,7 +1447,7 @@ function incrementUnreadCount(username) {
         const key = `chat_messages_${currentUser}_${username}`;
         const saved = localStorage.getItem(key);
         if (!saved) return;
-        
+
         const messages = JSON.parse(saved);
         // Помечаем последние сообщения как непрочитанные
         messages.forEach(m => {
@@ -1335,9 +1455,8 @@ function incrementUnreadCount(username) {
                 m.read = false;
             }
         });
-        
+
         localStorage.setItem(key, JSON.stringify(messages));
-        renderActiveChats();
     } catch (e) {
         console.error('❌ Increment unread count error:', e);
     }
@@ -1363,12 +1482,10 @@ function markMessagesAsRead(username) {
                 hasChanges = true;
             }
         });
-        
+
         if (hasChanges) {
             localStorage.setItem(key, JSON.stringify(messages));
         }
-        
-        renderActiveChats();
     } catch (e) {
         console.error('❌ Mark as read error:', e);
     }
@@ -1460,6 +1577,9 @@ function selectUser(username) {
     updateUserItemSelection(username);
     unreadMessagesCount = 0;
     isUserAtBottom = true;
+
+    // ✨ Добавляем чат в активные
+    addChatToActive(username);
 
     // ✨ Помечаем сообщения как прочитанные
     markMessagesAsRead(username);
@@ -1564,8 +1684,393 @@ function deleteChat(username, itemElement) {
         setTimeout(() => itemElement.remove(), 200);
 
         if (selectedUser === username) showGeneralChat();
-        clearChatStorage(username);
+        
+        // ✨ При удалении чата сбрасываем activeChat у пользователя
+        // Пользователь вернётся в общий список (если isVisibleInDirectory = true)
+        // Сообщения сохраняем, чтобы чат можно было восстановить
+        const user = users.find(u => u.name === username);
+        if (user) {
+            user.activeChat = null;
+            saveUsersToStorage();
+            renderUsers();
+        }
+        
         sendToServer({ type: 'delete_chat', chatName: username });
+    }
+}
+
+// ============================================================================
+// 👥 Групповые чаты
+// ============================================================================
+
+/**
+ * Рендеринг списка групп
+ */
+function renderGroups() {
+    if (!DOM.groupsList) return;
+
+    DOM.groupsList.innerHTML = '';
+
+    if (groups.length === 0) {
+        DOM.groupsList.style.display = 'none';
+        return;
+    }
+
+    DOM.groupsList.style.display = 'block';
+    const fragment = document.createDocumentFragment();
+
+    groups.forEach(group => {
+        const item = document.createElement('div');
+        item.className = 'group-item';
+        item.dataset.groupId = group.id;
+        item.dataset.groupName = group.name;
+
+        const groupIcon = document.createElement('span');
+        groupIcon.className = 'group-icon';
+        groupIcon.textContent = '👥';
+        groupIcon.setAttribute('aria-hidden', 'true');
+
+        const groupName = document.createElement('span');
+        groupName.className = 'group-name';
+        groupName.textContent = group.name;
+
+        // Кнопки действий
+        const actionButtons = document.createElement('div');
+        actionButtons.className = 'group-actions';
+
+        // Кнопка удалить группу (только для создателя)
+        if (group.creator === currentUser) {
+            const deleteBtn = document.createElement('button');
+            deleteBtn.className = 'group-action-btn delete-group-btn';
+            deleteBtn.type = 'button';
+            deleteBtn.textContent = '🗑️';
+            deleteBtn.title = 'Удалить группу';
+            deleteBtn.setAttribute('aria-label', 'Удалить группу');
+            actionButtons.appendChild(deleteBtn);
+        }
+
+        item.appendChild(groupIcon);
+        item.appendChild(groupName);
+        item.appendChild(actionButtons);
+
+        fragment.appendChild(item);
+    });
+
+    DOM.groupsList.appendChild(fragment);
+}
+
+/**
+ * Выбор группы для чата
+ * @param {string} groupId - ID группы
+ */
+function selectGroup(groupId) {
+    const group = groups.find(g => g.id === groupId);
+    if (!group) {
+        console.warn('⚠️ Group not found:', groupId);
+        return;
+    }
+
+    selectedGroup = groupId;
+    selectedUser = null; // Сбрасываем выбранного пользователя
+
+    if (DOM.chatTitle) {
+        DOM.chatTitle.textContent = '👥 ' + group.name;
+    }
+
+    updateUserItemSelection(null);
+    unreadMessagesCount = 0;
+    isUserAtBottom = true;
+
+    if (DOM.messagesList) {
+        DOM.messagesList.innerHTML = '';
+
+        const messages = loadGroupMessagesFromStorage(groupId);
+        if (messages && messages.length > 0) {
+            const fragment = document.createDocumentFragment();
+            messages.forEach(msg => {
+                const msgEl = createMessageElement(msg, msg.sender === currentUser);
+                if (msgEl) fragment.appendChild(msgEl);
+            });
+            DOM.messagesList.appendChild(fragment);
+            DOM.messagesList.scrollTop = DOM.messagesList.scrollHeight;
+        }
+    }
+
+    setInputPanelVisible(true);
+    DOM.chatUserStatus?.classList.add('hidden');
+    checkMobileView();
+    updateScrollButton();
+
+    // Закрытие sidebar на мобильных после выбора группы
+    if (window.innerWidth <= 768 && DOM.sidebar) {
+        DOM.sidebar.classList.remove('mobile-visible');
+    }
+
+    setTimeout(() => { if (DOM.messageBox) DOM.messageBox.focus(); }, 100);
+}
+
+/**
+ * Показать модальное окно создания группы
+ */
+function showCreateGroupModal() {
+    if (!DOM.createGroupModal) return;
+
+    // Заполняем список пользователей
+    renderGroupMembersSelect();
+
+    DOM.createGroupModal.classList.remove('hidden');
+}
+
+/**
+ * Рендеринг выбора участников группы
+ */
+function renderGroupMembersSelect() {
+    if (!DOM.groupMembersSelect) return;
+
+    DOM.groupMembersSelect.innerHTML = '';
+
+    const fragment = document.createDocumentFragment();
+
+    users.forEach(user => {
+        if (user.name === currentUser) return; // Не показываем текущего пользователя
+
+        const item = document.createElement('div');
+        item.className = 'group-member-item';
+        item.dataset.username = user.name;
+
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.className = 'member-checkbox';
+        checkbox.dataset.username = user.name;
+        // Отключаем пользователей, которые запретили приглашения
+        if (!user.allowGroupInvite) {
+            checkbox.disabled = true;
+        }
+
+        const nameEl = document.createElement('span');
+        nameEl.className = 'member-name';
+        nameEl.textContent = user.name;
+
+        const statusEl = document.createElement('span');
+        statusEl.className = 'member-status';
+        statusEl.textContent = user.allowGroupInvite ? '✓ Доступен' : '✗ Запретил';
+
+        item.appendChild(checkbox);
+        item.appendChild(nameEl);
+        item.appendChild(statusEl);
+
+        // Клик по элементу выбирает чекбокс
+        item.addEventListener('click', (e) => {
+            if (e.target !== checkbox && !checkbox.disabled) {
+                checkbox.checked = !checkbox.checked;
+                item.classList.toggle('selected', checkbox.checked);
+            }
+        });
+
+        fragment.appendChild(item);
+    });
+
+    DOM.groupMembersSelect.appendChild(fragment);
+}
+
+/**
+ * Создание группы
+ */
+function createGroup() {
+    const nameInput = DOM.groupNameInput?.value?.trim();
+    if (!nameInput) {
+        showCreateGroupStatus('Введите название группы', true);
+        return;
+    }
+
+    if (nameInput.length < 2 || nameInput.length > 50) {
+        showCreateGroupStatus('Название должно быть от 2 до 50 символов', true);
+        return;
+    }
+
+    // Собираем выбранных участников
+    const selectedMembers = [];
+    const checkboxes = DOM.groupMembersSelect?.querySelectorAll('.member-checkbox:checked');
+    if (checkboxes) {
+        checkboxes.forEach(cb => {
+            selectedMembers.push(cb.dataset.username);
+        });
+    }
+
+    if (selectedMembers.length === 0) {
+        showCreateGroupStatus('Выберите хотя бы одного участника', true);
+        return;
+    }
+
+    // Отправляем запрос на сервер
+    sendToServer({
+        type: 'create_group',
+        name: nameInput,
+        members: selectedMembers
+    });
+
+    // Закрываем модальное окно
+    DOM.createGroupModal?.classList.add('hidden');
+    DOM.groupNameInput.value = '';
+    showCreateGroupStatus('');
+}
+
+/**
+ * Показать статус создания группы
+ */
+function showCreateGroupStatus(message, isError = false) {
+    if (!DOM.createGroupStatus) return;
+
+    DOM.createGroupStatus.textContent = message;
+    DOM.createGroupStatus.style.color = isError ? 'var(--error)' : 'var(--success)';
+
+    if (message) {
+        setTimeout(() => {
+            DOM.createGroupStatus.textContent = '';
+        }, 5000);
+    }
+}
+
+/**
+ * Удаление группы
+ * @param {string} groupId - ID группы
+ * @param {string} groupName - Название группы
+ */
+function deleteGroup(groupId, groupName) {
+    if (confirm('Удалить группу "' + groupName + '"?')) {
+        sendToServer({ type: 'delete_group', groupId });
+    }
+}
+
+/**
+ * Обновление состава группы
+ */
+function updateGroupMembers(groupId, member, actionType) {
+    const group = groups.find(g => g.id === groupId);
+    if (!group) return;
+
+    if (actionType === 'group_member_added') {
+        if (!group.members.includes(member)) {
+            group.members.push(member);
+        }
+    } else if (actionType === 'group_member_removed' || actionType === 'group_member_left') {
+        group.members = group.members.filter(m => m !== member);
+    }
+
+    renderGroups();
+
+    // Если группа открыта, обновляем заголовок
+    if (selectedGroup === groupId && DOM.chatTitle) {
+        DOM.chatTitle.textContent = '👥 ' + group.name;
+    }
+}
+
+/**
+ * Обработка входящего сообщения группы
+ */
+function handleGroupMessageReceive(data) {
+    const groupId = data.groupId;
+    const group = groups.find(g => g.id === groupId);
+    if (!group) return;
+
+    const messageData = {
+        sender: data.sender,
+        text: sanitizeMessageText(data.text),
+        time: new Date(data.timestamp).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
+        timestamp: data.timestamp,
+        encrypted: data.encrypted || false,
+        hint: data.hint || null,
+        deliveryStatus: data.sender === currentUser ? 'sent' : 'delivered',
+        replyTo: data.replyTo || null,
+        groupId: groupId,
+        groupName: group.name
+    };
+
+    // Сохраняем сообщение
+    try {
+        saveGroupMessageToStorage(groupId, messageData);
+    } catch (e) {
+        console.error('❌ Save group message error:', e);
+    }
+
+    // Показываем сообщение если группа открыта
+    if (selectedGroup === groupId) {
+        const isAdded = addUnreadMessage();
+        if (isAdded) {
+            addMessage(messageData);
+        } else {
+            addMessage(messageData, false, false);
+        }
+    }
+
+    if (data.sender !== currentUser) {
+        playNotificationSound();
+        showBrowserNotification({
+            sender: data.sender,
+            text: data.encrypted ? '🔒 Зашифрованное сообщение' : data.text,
+            encrypted: data.encrypted,
+            groupName: group.name
+        });
+    }
+}
+
+/**
+ * Сохранение сообщения группы в localStorage
+ */
+function saveGroupMessageToStorage(groupId, message) {
+    try {
+        if (!currentUser || !groupId) {
+            console.warn('⚠️ saveGroupMessageToStorage: missing currentUser or groupId');
+            return;
+        }
+
+        const key = `group_messages_${currentUser}_${groupId}`;
+        let messages = loadGroupMessagesFromStorage(groupId);
+
+        messages.push(message);
+
+        if (messages.length > MAX_MESSAGES_IN_STORAGE) {
+            messages = messages.slice(-MAX_MESSAGES_IN_STORAGE);
+        }
+
+        localStorage.setItem(key, JSON.stringify(messages));
+    } catch (e) {
+        console.error('❌ Save group message error:', e);
+        if (e.name === 'QuotaExceededError') {
+            console.warn('⚠️ LocalStorage quota exceeded, clearing old messages...');
+            try {
+                localStorage.clear();
+            } catch (clearErr) {
+                console.error('❌ Clear storage error:', clearErr);
+            }
+        }
+    }
+}
+
+/**
+ * Загрузка сообщений группы из localStorage
+ */
+function loadGroupMessagesFromStorage(groupId) {
+    try {
+        if (!groupId) return [];
+
+        const key = `group_messages_${currentUser}_${groupId}`;
+        const saved = localStorage.getItem(key);
+        if (!saved) return [];
+
+        const parsed = JSON.parse(saved);
+        if (!Array.isArray(parsed)) return [];
+
+        return parsed.filter(m =>
+            m &&
+            typeof m === 'object' &&
+            typeof m.sender === 'string' &&
+            typeof m.text === 'string' &&
+            typeof m.timestamp === 'number'
+        );
+    } catch (e) {
+        console.error('❌ Load group messages error:', e);
+        return [];
     }
 }
 
@@ -1791,6 +2296,59 @@ function sendMessage() {
         hint = generateHint(key);
     }
 
+    // 👥 Отправка сообщения в группу
+    if (selectedGroup) {
+        const groupMessage = {
+            type: 'send_group_message',
+            groupId: selectedGroup,
+            text: messageText,
+            timestamp: Date.now(),
+            encrypted: encrypt,
+            hint: hint || null,
+            replyTo: replyToMessage ? {
+                timestamp: replyToMessage.timestamp,
+                sender: replyToMessage.sender,
+                text: replyToMessage.text
+            } : null
+        };
+
+        if (sendToServer(groupMessage)) {
+            addMessage({
+                sender: currentUser,
+                text: messageText,
+                time,
+                timestamp: Date.now(),
+                encrypted: encrypt,
+                hint,
+                deliveryStatus: 'pending',
+                replyTo: groupMessage.replyTo,
+                groupId: selectedGroup
+            }, true);
+
+            const group = groups.find(g => g.id === selectedGroup);
+            if (group) {
+                saveGroupMessageToStorage(selectedGroup, {
+                    sender: currentUser,
+                    text: messageText,
+                    time,
+                    timestamp: Date.now(),
+                    encrypted: encrypt,
+                    hint: hint || null,
+                    deliveryStatus: 'pending',
+                    replyTo: groupMessage.replyTo,
+                    groupId: selectedGroup,
+                    groupName: group.name
+                });
+            }
+
+            DOM.messageBox.value = '';
+            DOM.messageBox.style.height = 'auto';
+            scrollToBottom();
+        }
+        return;
+    }
+
+    // Отправка личного сообщения
     const message = {
         type: 'send_message',
         text: messageText,
@@ -2870,6 +3428,34 @@ function initSettings() {
             sendToServer({ type: 'update_visibility', isVisible: isVisibleInDirectory });
         });
     }
+
+    // ✨ Обработка настройки для групповых чатов
+    if (DOM.allowGroupInvite) {
+        DOM.allowGroupInvite.addEventListener('change', (e) => {
+            allowGroupInvite = e.target.checked;
+            saveSettings();
+            // Отправляем на сервер обновление
+            sendToServer({ type: 'update_group_invite_permission', allow: allowGroupInvite });
+        });
+    }
+
+    // 👥 Инициализация модального окна создания группы
+    const closeCreateGroup = document.getElementById('closeCreateGroup');
+    if (closeCreateGroup) {
+        closeCreateGroup.addEventListener('click', () => {
+            if (DOM.createGroupModal) DOM.createGroupModal.classList.add('hidden');
+        });
+    }
+
+    if (DOM.createGroupModal) {
+        DOM.createGroupModal.addEventListener('click', (e) => {
+            if (e.target === DOM.createGroupModal) DOM.createGroupModal.classList.add('hidden');
+        });
+    }
+
+    if (DOM.createGroupConfirmBtn) {
+        DOM.createGroupConfirmBtn.addEventListener('click', createGroup);
+    }
 }
 
 function syncSettingsUI() {
@@ -2900,6 +3486,11 @@ function syncSettingsUI() {
 
     if (DOM.showInDirectory) {
         DOM.showInDirectory.checked = isVisibleInDirectory;
+    }
+
+    // ✨ Синхронизация настройки для групповых чатов
+    if (DOM.allowGroupInvite) {
+        DOM.allowGroupInvite.checked = allowGroupInvite;
     }
 }
 
@@ -3000,18 +3591,13 @@ function autoLogin() {
 
             if (sessionAge < SESSION_MAX_AGE && sessionData.username && sessionData.passwordHash) {
                 currentUser = sessionData.username;
-                try {
-                    window.currentUserPassword = atob(sessionData.passwordHash);
-                } catch (decodeErr) {
-                    console.error('❌ Password decode error:', decodeErr);
-                    localStorage.removeItem(AUTH_SESSION_KEY);
-                    return false;
-                }
-                
+                // 🔒 Используем хеш пароля из сессии (не декодируем!)
+                userPasswordHash = sessionData.passwordHash;
+
                 connectToServer({
                     type: 'login',
                     username: currentUser,
-                    password: window.currentUserPassword
+                    password: userPasswordHash
                 });
                 console.log('✅ Auto-login successful for:', currentUser);
                 return true;
@@ -3028,15 +3614,16 @@ function autoLogin() {
 
 /**
  * Сохранение сессии пользователя
+ * 🔒 Сохраняем хеш пароля, а не сам пароль
  * @param {string} username - Имя пользователя
- * @param {string} password - Пароль
+ * @param {string} passwordHash - Хеш пароля
  */
-function saveAuthSession(username, password) {
+function saveAuthSession(username, passwordHash) {
     try {
         const sessionData = {
             username: username,
-            passwordHash: btoa(password),
-            passwordHint: password.substring(0, 2) + '*'.repeat(Math.max(0, password.length - 2)),
+            passwordHash: passwordHash, // 🔒 Уже хеш, не кодируем
+            passwordHint: username.substring(0, 2) + '•••', // 🔒 Безопасная подсказка
             timestamp: Date.now(),
             expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000 // 7 дней
         };
@@ -3082,7 +3669,7 @@ function performLogout() {
     currentUser = null;
     selectedUser = null;
     users = [];
-    window.currentUserPassword = null;
+    userPasswordHash = null; // 🔒 Очищаем хеш пароля
     replyToMessage = null;
     messageContextMenuTarget = null;
 
@@ -3137,24 +3724,6 @@ function loadSavedUsers() {
         if (saved) {
             users = JSON.parse(saved);
         }
-        
-        // ✨ Восстанавливаем активные чаты на основе сохранённых сообщений
-        // Проходим по всем ключам localStorage и ищем сообщения чатов
-        Object.keys(localStorage).forEach(key => {
-            if (key.startsWith('chat_messages_')) {
-                // Ключ формата: chat_messages_<currentUser>_<username>
-                const parts = key.replace('chat_messages_', '').split('_');
-                if (parts.length >= 2) {
-                    const username = parts.slice(1).join('_');
-                    
-                    // Находим пользователя в списке и восстанавливаем activeChat
-                    const user = users.find(u => u.name === username);
-                    if (user) {
-                        user.activeChat = currentUser;
-                    }
-                }
-            }
-        });
     } catch (e) {
         console.error('❌ Load users error:', e);
         users = [];
@@ -3272,6 +3841,12 @@ function loadSettings() {
             isVisibleInDirectory = data.isVisibleInDirectory;
             if (DOM.showInDirectory) DOM.showInDirectory.checked = data.isVisibleInDirectory;
         }
+
+        // ✨ Загрузка настройки для групповых чатов
+        if (typeof data.allowGroupInvite === 'boolean') {
+            allowGroupInvite = data.allowGroupInvite;
+            if (DOM.allowGroupInvite) DOM.allowGroupInvite.checked = data.allowGroupInvite;
+        }
     } catch (e) {
         console.error('❌ Load settings error:', e);
     }
@@ -3285,7 +3860,8 @@ function saveSettings() {
             messageColor: DOM.messageColorSelect?.value || '#7B2CBF',
             fontSize: DOM.fontSizeSelect?.value || '14',
             soundEnabled: DOM.soundNotify?.checked ?? true,
-            isVisibleInDirectory: DOM.showInDirectory?.checked ?? false
+            isVisibleInDirectory: DOM.showInDirectory?.checked ?? false,
+            allowGroupInvite: DOM.allowGroupInvite?.checked ?? false // ✨ Настройка для групповых чатов
         };
         localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
     } catch (e) {
@@ -3305,5 +3881,333 @@ function setInputPanelVisible(isVisible) {
 
     if (isVisible && DOM.messagesList) {
         DOM.messagesList.scrollTop = DOM.messagesList.scrollHeight;
+    }
+}
+
+// ============================================================================
+// 🔹 Уведомления
+// ============================================================================
+/**
+ * Воспроизведение звука уведомления
+ */
+function playNotificationSound() {
+    if (!soundEnabled || !DOM.notificationSound) return;
+
+    try {
+        DOM.notificationSound.currentTime = 0;
+        DOM.notificationSound.play().catch(err => {
+            console.warn('⚠️ Sound play error:', err);
+        });
+    } catch (e) {
+        console.error('❌ Play sound error:', e);
+    }
+}
+
+/**
+ * Показ браузерного уведомления
+ * @param {Object} data - Данные уведомления
+ */
+function showBrowserNotification(data) {
+    if (!data || !data.sender) return;
+
+    // Проверяем поддержку уведомлений
+    if (!('Notification' in window)) return;
+
+    // Запрашиваем разрешение если нужно
+    if (Notification.permission === 'granted') {
+        try {
+            const notification = new Notification(
+                data.groupName ? `👥 ${data.groupName}` : 'Новое сообщение',
+                {
+                    body: `${data.sender}: ${data.text?.substring(0, 100) || ''}`,
+                    icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">💬</text></svg>',
+                    tag: `message-${data.sender}-${Date.now()}`,
+                    requireInteraction: false
+                }
+            );
+
+            notification.onclick = () => {
+                window.focus();
+                notification.close();
+            };
+        } catch (e) {
+            console.error('❌ Browser notification error:', e);
+        }
+    } else if (Notification.permission !== 'denied') {
+        Notification.requestPermission().then(permission => {
+            if (permission === 'granted') {
+                showBrowserNotification(data);
+            }
+        }).catch(err => {
+            console.warn('⚠️ Notification permission error:', err);
+        });
+    }
+}
+
+// ============================================================================
+// 🔹 Шифрование
+// ============================================================================
+/**
+ * XOR шифрование текста
+ * @param {string} text - Текст для шифрования
+ * @param {string} key - Ключ шифрования
+ * @returns {string} - Зашифрованный текст
+ */
+function xorEncrypt(text, key) {
+    if (!text || !key) return text;
+
+    let result = '';
+    const keyLength = key.length;
+
+    for (let i = 0; i < text.length; i++) {
+        const textChar = text.charCodeAt(i);
+        const keyChar = key.charCodeAt(i % keyLength);
+        result += String.fromCharCode(textChar ^ keyChar);
+    }
+
+    // Преобразуем в hex для безопасной передачи
+    return Array.from(result)
+        .map(c => c.charCodeAt(0).toString(16).padStart(2, '0'))
+        .join('');
+}
+
+/**
+ * XOR расшифрование текста
+ * @param {string} encryptedText - Зашифрованный текст (hex)
+ * @param {string} key - Ключ расшифрования
+ * @returns {string} - Расшифрованный текст
+ */
+function xorDecrypt(encryptedText, key) {
+    if (!encryptedText || !key) return encryptedText;
+
+    try {
+        // Преобразуем из hex
+        let hexString = encryptedText;
+        let result = '';
+
+        for (let i = 0; i < hexString.length; i += 2) {
+            const hex = parseInt(hexString.substr(i, 2), 16);
+            result += String.fromCharCode(hex);
+        }
+
+        // XOR расшифрование
+        let decrypted = '';
+        const keyLength = key.length;
+
+        for (let i = 0; i < result.length; i++) {
+            const charCode = result.charCodeAt(i);
+            const keyChar = key.charCodeAt(i % keyLength);
+            decrypted += String.fromCharCode(charCode ^ keyChar);
+        }
+
+        return decrypted;
+    } catch (e) {
+        console.error('❌ Decrypt error:', e);
+        return '❌ Ошибка расшифровки';
+    }
+}
+
+/**
+ * Генерация подсказки для ключа
+ * @param {string} key - Ключ шифрования
+ * @returns {string} - Подсказка
+ */
+function generateHint(key) {
+    if (!key) return '???';
+
+    const firstChar = key.charAt(0);
+    const lastChar = key.charAt(key.length - 1);
+    const sum = key.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+
+    return `${firstChar}...${lastChar} (${sum})`;
+}
+
+/**
+ * Расшифровка сообщения
+ */
+function decryptMessage() {
+    if (!DOM.decryptKeyBox || !DOM.decryptPanel) return;
+
+    const key = DOM.decryptKeyBox.value.trim();
+    const messageIndex = parseInt(DOM.decryptPanel.dataset.messageIndex || '-1', 10);
+
+    if (!key || messageIndex < 0) {
+        alert('⚠️ Введите ключ для расшифровки');
+        return;
+    }
+
+    const messages = DOM.messagesList?.querySelectorAll('.message');
+    if (!messages || messageIndex >= messages.length) return;
+
+    const messageEl = messages[messageIndex];
+    const encryptedText = messageEl.dataset.text;
+    const hint = messageEl.dataset.hint;
+
+    if (!encryptedText) {
+        alert('❌ Сообщение не зашифровано');
+        return;
+    }
+
+    const decrypted = xorDecrypt(encryptedText, key);
+
+    // Проверяем правильность ключа по подсказке
+    const expectedHint = generateHint(key);
+    if (hint && expectedHint !== hint) {
+        alert('⚠️ Неверный ключ! Подсказка: ' + hint);
+        return;
+    }
+
+    // Обновляем отображение
+    const textEl = messageEl.querySelector('.text');
+    if (textEl) {
+        textEl.textContent = decrypted;
+    }
+
+    messageEl.classList.remove('encrypted');
+    messageEl.title = 'Расшифровано';
+    messageEl.dataset.decrypted = 'true';
+
+    // Скрываем панель
+    DOM.decryptPanel.classList.add('hidden');
+    DOM.decryptKeyBox.value = '';
+}
+
+// ============================================================================
+// 🔹 Временные уведомления
+// ============================================================================
+/**
+ * Показать временное уведомление
+ * @param {string} message - Сообщение
+ */
+function showTemporaryNotification(message) {
+    if (!message) return;
+
+    const notification = document.createElement('div');
+    notification.className = 'temporary-notification';
+    notification.textContent = message;
+    notification.style.cssText = `
+        position: fixed;
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: var(--panel-bg);
+        color: var(--text-primary);
+        padding: 12px 24px;
+        border-radius: 8px;
+        box-shadow: 0 4px 20px var(--shadow-color);
+        z-index: 10000;
+        animation: fadeInOut 3s ease;
+        font-size: 14px;
+    `;
+
+    document.body.appendChild(notification);
+
+    setTimeout(() => {
+        notification.remove();
+    }, 3000);
+}
+
+// ============================================================================
+// 🔹 Инициализация настроек
+// ============================================================================
+function initSettings() {
+    const settingsBtn = document.getElementById('settingsBtn');
+    const closeSettings = document.getElementById('closeSettings');
+    const settingsModal = document.getElementById('settingsModal');
+    const logoutBtn = document.getElementById('logoutBtn');
+
+    if (settingsBtn && settingsModal) {
+        settingsBtn.addEventListener('click', () => {
+            settingsModal.classList.remove('hidden');
+            syncSettingsUI();
+        });
+    }
+
+    if (closeSettings && settingsModal) {
+        closeSettings.addEventListener('click', () => {
+            settingsModal.classList.add('hidden');
+        });
+    }
+
+    if (settingsModal) {
+        settingsModal.addEventListener('click', (e) => {
+            if (e.target === settingsModal) {
+                settingsModal.classList.add('hidden');
+            }
+        });
+    }
+
+    if (logoutBtn) {
+        logoutBtn.addEventListener('click', performLogout);
+    }
+
+    // Обработчики настроек
+    if (DOM.fontSizeSelect) {
+        DOM.fontSizeSelect.addEventListener('change', (e) => {
+            const size = e.target.value;
+            document.body.classList.remove('font-small', 'font-medium', 'font-large');
+            document.body.classList.add('font-' + (size === '12' ? 'small' : size === '16' ? 'large' : 'medium'));
+            saveSettings();
+        });
+    }
+
+    if (DOM.themeSelect) {
+        DOM.themeSelect.addEventListener('change', (e) => {
+            document.documentElement.setAttribute('data-theme', e.target.value);
+            saveSettings();
+        });
+    }
+
+    if (DOM.accentColorSelect) {
+        DOM.accentColorSelect.addEventListener('change', (e) => {
+            const color = e.target.value;
+            document.documentElement.style.setProperty('--accent', color);
+            document.documentElement.style.setProperty('--accent-hover', adjustColorBrightness(color, 20));
+            saveSettings();
+        });
+    }
+
+    if (DOM.messageColorSelect) {
+        DOM.messageColorSelect.addEventListener('change', (e) => {
+            const color = e.target.value;
+            document.documentElement.style.setProperty('--own-message-bg', color);
+            saveSettings();
+        });
+    }
+
+    if (DOM.showInDirectory) {
+        DOM.showInDirectory.addEventListener('change', (e) => {
+            isVisibleInDirectory = e.target.checked;
+            saveSettings();
+            sendToServer({ type: 'update_visibility', isVisible: isVisibleInDirectory });
+        });
+    }
+
+    // ✨ Обработка настройки для групповых чатов
+    if (DOM.allowGroupInvite) {
+        DOM.allowGroupInvite.addEventListener('change', (e) => {
+            allowGroupInvite = e.target.checked;
+            saveSettings();
+            // Отправляем на сервер обновление
+            sendToServer({ type: 'update_group_invite_permission', allow: allowGroupInvite });
+        });
+    }
+
+    // 👥 Инициализация модального окна создания группы
+    const closeCreateGroup = document.getElementById('closeCreateGroup');
+    if (closeCreateGroup) {
+        closeCreateGroup.addEventListener('click', () => {
+            if (DOM.createGroupModal) DOM.createGroupModal.classList.add('hidden');
+        });
+    }
+
+    if (DOM.createGroupModal) {
+        DOM.createGroupModal.addEventListener('click', (e) => {
+            if (e.target === DOM.createGroupModal) DOM.createGroupModal.classList.add('hidden');
+        });
+    }
+
+    if (DOM.createGroupConfirmBtn) {
+        DOM.createGroupConfirmBtn.addEventListener('click', createGroup);
     }
 }
