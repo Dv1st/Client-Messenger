@@ -32,6 +32,10 @@ const userVisibilityCache = new Map();
 let unreadMessagesCount = 0;
 let isUserAtBottom = true;
 
+// Контекстное меню сообщений
+let messageContextMenuTarget = null;
+let replyToMessage = null;
+
 // ============================================================================
 // 🔹 Константы
 // ============================================================================
@@ -68,7 +72,6 @@ const DOM = {
     chatPlaceholder: null,
     chatTitle: null,
     chatUserStatus: null,
-    statusIndicator: null,
     backBtn: null,
     scrollToBottomBtn: null,
     unreadCount: null,
@@ -100,13 +103,13 @@ function initDOM() {
     const ids = [
         'loginWindow', 'chatWindow', 'settingsModal', 'sidebar', 'sidebarToggle',
         'sidebarTrigger', 'searchBox', 'usersList', 'activeChatsList', 'messagesList',
-        'inputPanel', 'chatPlaceholder', 'chatTitle', 'chatUserStatus', 'statusIndicator',
-        'backBtn', 'scrollToBottomBtn', 'unreadCount', 'messageBox', 'sendBtn',
-        'encryptCheckBox', 'encryptKeyBox', 'decryptPanel', 'decryptKeyBox', 'decryptBtn',
-        'themeSelect', 'fontSizeSelect', 'showInDirectory', 'soundNotify', 'pushNotify',
+        'inputPanel', 'chatPlaceholder', 'chatTitle', 'chatUserStatus', 'backBtn',
+        'scrollToBottomBtn', 'unreadCount', 'messageBox', 'sendBtn', 'encryptCheckBox',
+        'encryptKeyBox', 'decryptPanel', 'decryptKeyBox', 'decryptBtn', 'themeSelect',
+        'fontSizeSelect', 'showInDirectory', 'soundNotify', 'pushNotify',
         'notificationSound', 'currentUserLabel'
     ];
-    
+
     ids.forEach(id => {
         DOM[id] = document.getElementById(id);
     });
@@ -324,7 +327,6 @@ function connectToServer(authMessage) {
         socket.onopen = () => {
             console.log('✅ Connected');
             reconnectAttempts = 0;
-            updateStatus('connected');
             if (authMessage) socket.send(JSON.stringify(authMessage));
         };
 
@@ -337,11 +339,11 @@ function connectToServer(authMessage) {
         };
 
         socket.onerror = () => {
-            updateStatus('disconnected');
+            console.warn('⚠️ WebSocket error');
         };
 
         socket.onclose = (event) => {
-            updateStatus('disconnected');
+            console.log('🔌 Disconnected:', event.code);
 
             if (currentUser && event.code !== 1000 && event.code !== 1001) {
                 reconnectAttempts++;
@@ -359,7 +361,6 @@ function connectToServer(authMessage) {
         };
     } catch (error) {
         showStatus('Ошибка подключения: ' + error.message);
-        updateStatus('disconnected');
     }
 }
 
@@ -382,7 +383,7 @@ function sendToServer(message) {
 // ============================================================================
 function handleServerMessage(data) {
     if (!data || typeof data.type !== 'string') return;
-    
+
     switch (data.type) {
         case 'register_success':
             showStatus('✅ Регистрация успешна! Теперь войдите', false);
@@ -419,6 +420,10 @@ function handleServerMessage(data) {
         case 'message_read_receipt':
             updateMessageDeliveryStatus(data.timestamp, 'delivered');
             break;
+        // Обработка удаления сообщения
+        case 'message_deleted':
+            handleRemoteMessageDelete(data.timestamp, data.deletedBy);
+            break;
     }
 }
 
@@ -438,12 +443,12 @@ function handleLoginSuccess(data) {
     
     DOM.loginWindow?.classList.add('hidden');
     DOM.chatWindow?.classList.remove('hidden');
-    
+
     if (DOM.currentUserLabel) {
         DOM.currentUserLabel.textContent = currentUser;
     }
-    
-    updateStatus('connected');
+
+    console.log('✅ Connected');
     sendToServer({ type: 'get_users' });
     requestAudioPermission();
 }
@@ -489,7 +494,8 @@ function handleMessageReceive(data) {
         timestamp: data.timestamp,
         encrypted: data.encrypted || false,
         hint: data.hint || null,
-        deliveryStatus: data.sender === currentUser ? 'sent' : 'delivered'
+        deliveryStatus: data.sender === currentUser ? 'sent' : 'delivered',
+        replyTo: data.replyTo || null
     };
 
     const chatName = data.privateTo || 'general';
@@ -1334,7 +1340,13 @@ function sendMessage() {
         type: 'send_message',
         text: messageText,
         timestamp: Date.now(),
-        privateTo: selectedUser || null
+        privateTo: selectedUser || null,
+        // Ответ на сообщение
+        replyTo: replyToMessage ? {
+            timestamp: replyToMessage.timestamp,
+            sender: replyToMessage.sender,
+            text: replyToMessage.text
+        } : null
     };
 
     if (sendToServer(message)) {
@@ -1345,7 +1357,8 @@ function sendMessage() {
             timestamp: Date.now(),
             encrypted: encrypt,
             hint,
-            deliveryStatus: 'pending'
+            deliveryStatus: 'pending',
+            replyTo: message.replyTo
         }, true);
 
         if (selectedUser) {
@@ -1356,11 +1369,19 @@ function sendMessage() {
                 timestamp: Date.now(),
                 encrypted: encrypt,
                 hint: encrypt ? generateHint(key) : null,
-                deliveryStatus: 'pending'
+                deliveryStatus: 'pending',
+                replyTo: message.replyTo
             });
         }
 
         DOM.messageBox.value = '';
+
+        // Сбрасываем ответ
+        if (replyToMessage) {
+            replyToMessage = null;
+            const replyIndicator = document.getElementById('replyIndicator');
+            if (replyIndicator) replyIndicator.remove();
+        }
 
         if (encrypt && DOM.encryptCheckBox && DOM.encryptKeyBox) {
             DOM.encryptCheckBox.checked = false;
@@ -1397,6 +1418,17 @@ function createMessageElement(data, isOwn = false) {
         message.appendChild(senderEl);
     }
 
+    // Ответ на сообщение (если есть)
+    if (data.replyTo) {
+        const replyEl = document.createElement('div');
+        replyEl.className = 'message-reply';
+        replyEl.innerHTML = `
+            <span class="reply-sender">${escapeHtml(data.replyTo.sender)}</span>
+            <span class="reply-preview">${escapeHtml(data.replyTo.text.substring(0, 50))}</span>
+        `;
+        message.appendChild(replyEl);
+    }
+
     const textEl = document.createElement('div');
     textEl.className = 'text';
     textEl.textContent = displayText;
@@ -1412,7 +1444,7 @@ function createMessageElement(data, isOwn = false) {
 
     if (isCurrentUser && checksHtml) {
         const checksEl = document.createElement('span');
-        checksEl.innerHTML = checksHtml; // innerHTML допустим для заранее определённого HTML
+        checksEl.innerHTML = checksHtml;
         metaEl.appendChild(checksEl);
     }
 
@@ -1432,6 +1464,21 @@ function createMessageElement(data, isOwn = false) {
             }
         });
     }
+
+    // Контекстное меню для сообщений (правый клик)
+    message.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        showMessageContextMenu(e, message, data, isCurrentUser);
+    });
+
+    // Клик по сообщению для ответа (двойной клик)
+    message.addEventListener('dblclick', () => {
+        if (!isCurrentUser && !data.encrypted) {
+            replyToMessage = data;
+            showReplyIndicator();
+            if (DOM.messageBox) DOM.messageBox.focus();
+        }
+    });
 
     return message;
 }
@@ -1461,6 +1508,245 @@ function addMessage(data, isOwn = false, scrollToBottom = true) {
     if (scrollToBottom) {
         DOM.messagesList.scrollTop = DOM.messagesList.scrollHeight;
     }
+}
+
+// ============================================================================
+// 🔹 Контекстное меню сообщений
+// ============================================================================
+/**
+ * Показать контекстное меню для сообщения
+ * @param {MouseEvent} e - Событие мыши
+ * @param {HTMLElement} messageEl - Элемент сообщения
+ * @param {Object} messageData - Данные сообщения
+ * @param {boolean} isOwn - Своё ли сообщение
+ */
+function showMessageContextMenu(e, messageEl, messageData, isOwn) {
+    // Закрываем предыдущее меню
+    closeMessageContextMenu();
+
+    messageContextMenuTarget = { messageEl, messageData, isOwn };
+    messageEl.classList.add('context-menu-active');
+
+    const menu = document.createElement('div');
+    menu.className = 'message-context-menu';
+    menu.id = 'messageContextMenu';
+
+    // Позиционирование меню
+    const menuWidth = 200;
+    const menuHeight = 180;
+    const left = Math.min(e.pageX, window.innerWidth - menuWidth - 10);
+    const top = Math.min(e.pageY, window.innerHeight - menuHeight - 10);
+    menu.style.left = left + 'px';
+    menu.style.top = top + 'px';
+
+    // Копировать
+    const copyBtn = createMessageMenuItem('📋 Копировать', () => {
+        copyMessageText(messageData.text);
+        closeMessageContextMenu();
+    });
+    menu.appendChild(copyBtn);
+
+    // Ответить
+    const replyBtn = createMessageMenuItem('↩️ Ответить', () => {
+        replyToMessage = messageData;
+        showReplyIndicator();
+        closeMessageContextMenu();
+        if (DOM.messageBox) DOM.messageBox.focus();
+    });
+    menu.appendChild(replyBtn);
+
+    menu.appendChild(createMessageMenuDivider());
+
+    // Удалить (только для своих сообщений)
+    if (isOwn) {
+        const deleteBtn = createMessageMenuItem('🗑️ Удалить у всех', () => {
+            deleteMessage(messageData, messageEl);
+            closeMessageContextMenu();
+        }, 'danger');
+        menu.appendChild(deleteBtn);
+    }
+
+    document.body.appendChild(menu);
+
+    // Закрытие при клике вне меню
+    setTimeout(() => {
+        document.addEventListener('click', closeMenuOnClick, { once: true });
+        document.addEventListener('scroll', closeMessageContextMenu, { once: true });
+    }, 100);
+}
+
+/**
+ * Создать элемент меню сообщения
+ */
+function createMessageMenuItem(text, onClick, isDanger = false) {
+    const btn = document.createElement('button');
+    btn.className = 'message-context-menu-item' + (isDanger ? ' danger' : '');
+    btn.textContent = text;
+    btn.type = 'button';
+    btn.addEventListener('click', onClick);
+    return btn;
+}
+
+/**
+ * Создать разделитель меню
+ */
+function createMessageMenuDivider() {
+    const divider = document.createElement('div');
+    divider.className = 'message-context-menu-divider';
+    return divider;
+}
+
+/**
+ * Закрыть контекстное меню сообщений
+ */
+function closeMessageContextMenu() {
+    const menu = document.getElementById('messageContextMenu');
+    if (menu) menu.remove();
+
+    if (messageContextMenuTarget?.messageEl) {
+        messageContextMenuTarget.messageEl.classList.remove('context-menu-active');
+    }
+    messageContextMenuTarget = null;
+}
+
+/**
+ * Закрытие меню при клике
+ */
+function closeMenuOnClick(e) {
+    const menu = document.getElementById('messageContextMenu');
+    if (menu && !menu.contains(e.target)) {
+        closeMessageContextMenu();
+    }
+}
+
+/**
+ * Копировать текст сообщения
+ */
+function copyMessageText(text) {
+    const cleanText = text.replace(/🔒 Зашифровано.*/g, '').trim();
+    navigator.clipboard.writeText(cleanText).then(() => {
+        showTemporaryNotification('📋 Скопировано в буфер');
+    }).catch(err => {
+        // Fallback для старых браузеров
+        const textarea = document.createElement('textarea');
+        textarea.value = cleanText;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+        showTemporaryNotification('📋 Скопировано в буфер');
+    });
+}
+
+/**
+ * Показать индикатор ответа
+ */
+function showReplyIndicator() {
+    if (!replyToMessage) return;
+
+    // Удаляем предыдущий индикатор
+    let existingIndicator = document.getElementById('replyIndicator');
+    if (existingIndicator) existingIndicator.remove();
+
+    const indicator = document.createElement('div');
+    indicator.id = 'replyIndicator';
+    indicator.className = 'reply-indicator';
+    indicator.innerHTML = `
+        <span class="reply-text">Ответ на сообщение: <strong>${escapeHtml(replyToMessage.sender)}</strong></span>
+        <button class="reply-cancel" type="button" title="Отменить ответ">✕</button>
+    `;
+
+    // Вставляем перед панелью ввода
+    const inputPanel = document.getElementById('inputPanel');
+    if (inputPanel) {
+        inputPanel.parentNode.insertBefore(indicator, inputPanel);
+    }
+
+    // Обработчик отмены
+    const cancelBtn = indicator.querySelector('.reply-cancel');
+    if (cancelBtn) {
+        cancelBtn.addEventListener('click', () => {
+            replyToMessage = null;
+            indicator.remove();
+        });
+    }
+}
+
+/**
+ * Удалить сообщение
+ */
+function deleteMessage(messageData, messageEl) {
+    if (!confirm('Удалить это сообщение у всех пользователей?')) return;
+
+    // Отправляем запрос на сервер
+    sendToServer({
+        type: 'delete_message',
+        timestamp: messageData.timestamp,
+        chatWith: selectedUser
+    });
+
+    // Удаляем из DOM
+    messageEl.style.opacity = '0';
+    messageEl.style.transform = 'scale(0.9)';
+    setTimeout(() => messageEl.remove(), 200);
+
+    // Удаляем из localStorage
+    if (selectedUser) {
+        const messages = loadMessagesFromStorage(selectedUser);
+        const filteredMessages = messages.filter(m => m.timestamp !== messageData.timestamp);
+        localStorage.setItem(`chat_messages_${currentUser}_${selectedUser}`, JSON.stringify(filteredMessages));
+    }
+}
+
+/**
+ * Обработка удаления сообщения от сервера (удаление у всех)
+ * @param {number} timestamp - Временная метка удалённого сообщения
+ * @param {string} deletedBy - Кто удалил сообщение
+ */
+function handleRemoteMessageDelete(timestamp, deletedBy) {
+    if (!DOM.messagesList || !timestamp) return;
+
+    // Находим и удаляем сообщение из DOM
+    const messages = DOM.messagesList.querySelectorAll('.message');
+    messages.forEach(msg => {
+        if (msg.dataset.timestamp == timestamp) {
+            msg.style.opacity = '0';
+            msg.style.transform = 'scale(0.9)';
+            setTimeout(() => msg.remove(), 200);
+        }
+    });
+
+    // Удаляем из localStorage
+    if (selectedUser) {
+        const messages = loadMessagesFromStorage(selectedUser);
+        const filteredMessages = messages.filter(m => m.timestamp !== timestamp);
+        localStorage.setItem(`chat_messages_${currentUser}_${selectedUser}`, JSON.stringify(filteredMessages));
+    }
+
+    showTemporaryNotification('🗑️ Сообщение удалено пользователем ' + deletedBy);
+}
+
+/**
+ * Показать временное уведомление
+ */
+function showTemporaryNotification(text, duration = 2000) {
+    const notification = document.createElement('div');
+    notification.className = 'temporary-notification';
+    notification.textContent = text;
+    notification.style.cssText = `
+        position: fixed;
+        bottom: 100px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: var(--accent);
+        color: white;
+        padding: 10px 20px;
+        border-radius: 8px;
+        z-index: 10000;
+        animation: fadeInOut 2s ease;
+    `;
+    document.body.appendChild(notification);
+    setTimeout(() => notification.remove(), duration);
 }
 
 // ============================================================================
@@ -1688,8 +1974,17 @@ function initHotkeys() {
             } else if (selectedUser) {
                 showGeneralChat();
             }
+            // Закрываем контекстное меню пользователей
             const contextMenu = document.querySelector('.context-menu');
             if (contextMenu) contextMenu.remove();
+            // Закрываем контекстное меню сообщений
+            closeMessageContextMenu();
+            // Сбрасываем ответ на сообщение
+            if (replyToMessage) {
+                replyToMessage = null;
+                const replyIndicator = document.getElementById('replyIndicator');
+                if (replyIndicator) replyIndicator.remove();
+            }
         }
     });
 }
@@ -1752,16 +2047,16 @@ function performLogout() {
     currentUser = null;
     selectedUser = null;
     users = [];
-    
+
     DOM.chatWindow?.classList.add('hidden');
     DOM.loginWindow?.classList.remove('hidden');
-    
+
     const loginUsername = document.getElementById('loginUsername');
     const loginPassword = document.getElementById('loginPassword');
     if (loginUsername) loginUsername.value = '';
     if (loginPassword) loginPassword.value = '';
-    
-    updateStatus('disconnected');
+
+    console.log('🔌 Disconnected');
 }
 
 // ============================================================================
@@ -1884,11 +2179,5 @@ function setInputPanelVisible(isVisible) {
 
     if (isVisible && DOM.messagesList) {
         DOM.messagesList.scrollTop = DOM.messagesList.scrollHeight;
-    }
-}
-
-function updateStatus(status) {
-    if (DOM.statusIndicator) {
-        DOM.statusIndicator.className = 'status-indicator ' + status;
     }
 }
