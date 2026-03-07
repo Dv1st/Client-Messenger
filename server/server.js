@@ -25,15 +25,18 @@ const USERNAME_MAX_LENGTH = 20;
 // 🔒 Security Headers
 // ============================================================================
 const CSP_HEADERS = {
-    'Content-Security-Policy': "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' wss:;",
+    'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' wss: ws:;",
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'DENY',
-    'X-XSS-Protection': '1; mode=block'
+    'X-XSS-Protection': '1; mode=block',
+    'Referrer-Policy': 'strict-origin-when-cross-origin',
+    'Permissions-Policy': 'geolocation=(), microphone=(), camera=()'
 };
 
 const ALLOWED_ORIGINS = [
     'http://localhost:8000',
     'http://localhost:3000',
+    'http://localhost:5500',
     'https://dv1st.github.io',
     'https://client-messenger-production.up.railway.app'
 ];
@@ -125,14 +128,14 @@ function broadcast(msg, excludeWs = null) {
 
 function broadcastUserList() {
     const userList = Array.from(users.entries())
-        .filter(([_, user]) => user.devices.size > 0)
+        .filter(([_, user]) => user.devices.size > 0 && user.isVisibleInDirectory !== false)
         .map(([name, user]) => ({
             username: name,
             name: name,
             status: user.status,
             online: user.status === 'online',
             activeChat: user.activeChat,
-            isVisibleInDirectory: user.isVisibleInDirectory,
+            isVisibleInDirectory: user.isVisibleInDirectory !== false,
             lastLogin: user.lastLogin
         }));
 
@@ -164,11 +167,16 @@ function cleanupSessions() {
     for (const [tokenId, session] of sessions.entries()) {
         if (now - session.lastActivity > SESSION_TIMEOUT) {
             console.log(`🕒 Session expired: ${session.username}`);
+            
+            // Сначала удаляем из wsToToken
+            const ws = session.ws;
+            wsToToken.delete(ws);
+            
             sessions.delete(tokenId);
 
-            if (session.ws?.readyState === WebSocket.OPEN) {
-                session.ws.send(JSON.stringify({ type: 'session_expired', message: 'Сессия истекла' }));
-                session.ws.close(4001, 'Session expired');
+            if (ws?.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'session_expired', message: 'Сессия истекла' }));
+                ws.close(4001, 'Session expired');
             }
         }
     }
@@ -222,20 +230,25 @@ function handleRegister(ws, { username, password }, clientIp) {
     }
 
     // Создание пользователя
-    const salt = generateSalt();
-    users.set(username, {
-        passwordHash: hashPassword(password, salt),
-        salt,
-        createdAt: Date.now(),
-        lastLogin: null,
-        isVisibleInDirectory: false, // ✨ ИЗМЕНЕНО: По умолчанию скрыт из списка
-        status: 'offline',
-        activeChat: null,
-        devices: new Map()
-    });
+    try {
+        const salt = generateSalt();
+        users.set(username, {
+            passwordHash: hashPassword(password, salt),
+            salt,
+            createdAt: Date.now(),
+            lastLogin: null,
+            isVisibleInDirectory: false,
+            status: 'offline',
+            activeChat: null,
+            devices: new Map()
+        });
 
-    console.log(`✅ Registered: ${username} from ${clientIp}`);
-    ws.send(JSON.stringify({ type: 'register_success', message: 'Регистрация успешна! Теперь войдите.' }));
+        console.log(`✅ Registered: ${username} from ${clientIp}`);
+        ws.send(JSON.stringify({ type: 'register_success', message: 'Регистрация успешна! Теперь войдите.' }));
+    } catch (e) {
+        console.error('❌ Register error:', e);
+        ws.send(JSON.stringify({ type: 'register_error', message: 'Ошибка при регистрации' }));
+    }
 }
 
 function handleLogin(ws, { username, password }, clientIp) {
@@ -268,61 +281,71 @@ function handleLogin(ws, { username, password }, clientIp) {
     }
 
     // Создание сессии
-    const tokenId = generateToken();
-    const deviceId = 'device_' + crypto.randomBytes(8).toString('hex');
+    try {
+        const tokenId = generateToken();
+        const deviceId = 'device_' + crypto.randomBytes(8).toString('hex');
 
-    const session = {
-        username,
-        deviceId,
-        ws,
-        createdAt: Date.now(),
-        lastActivity: Date.now()
-    };
+        const session = {
+            username,
+            deviceId,
+            ws,
+            createdAt: Date.now(),
+            lastActivity: Date.now()
+        };
 
-    sessions.set(tokenId, session);
-    wsToToken.set(ws, tokenId);
-    user.devices.set(deviceId, { ws, lastActivity: Date.now() });
-    user.lastLogin = Date.now();
-    user.status = 'online';
+        sessions.set(tokenId, session);
+        wsToToken.set(ws, tokenId);
+        user.devices.set(deviceId, { ws, lastActivity: Date.now() });
+        user.lastLogin = Date.now();
+        user.status = 'online';
 
-    console.log(`✅ Logged in: ${username} (${deviceId}) from ${clientIp}`);
+        console.log(`✅ Logged in: ${username} (${deviceId}) from ${clientIp}`);
 
-    ws.send(JSON.stringify({
-        type: 'login_success',
-        username,
-        deviceId,
-        token: tokenId,
-        isVisibleInDirectory: user.isVisibleInDirectory,
-        message: 'Вход выполнен успешно'
-    }));
+        ws.send(JSON.stringify({
+            type: 'login_success',
+            username,
+            deviceId,
+            token: tokenId,
+            isVisibleInDirectory: user.isVisibleInDirectory,
+            message: 'Вход выполнен успешно'
+        }));
 
-    broadcastUserList();
+        broadcastUserList();
+    } catch (e) {
+        console.error('❌ Login error:', e);
+        ws.send(JSON.stringify({ type: 'login_error', message: 'Ошибка при входе' }));
+    }
 }
 
 function handleLogout(ws, tokenId, isDisconnect = false) {
-    const session = sessions.get(tokenId);
-    if (!session) return;
+    try {
+        const session = sessions.get(tokenId);
+        if (!session) return;
 
-    const user = users.get(session.username);
-    if (user) {
-        user.devices.delete(session.deviceId);
-        if (user.devices.size === 0) {
-            user.status = 'offline';
-            user.activeChat = null;
-            broadcast({
-                type: 'user_status_update',
-                username: session.username,
-                status: 'offline',
-                activeChat: null
-            });
+        const user = users.get(session.username);
+        if (user) {
+            user.devices.delete(session.deviceId);
+            if (user.devices.size === 0) {
+                user.status = 'offline';
+                user.activeChat = null;
+                broadcast({
+                    type: 'user_status_update',
+                    username: session.username,
+                    status: 'offline',
+                    activeChat: null
+                });
+            }
         }
+
+        // Сначала удаляем из wsToToken
+        wsToToken.delete(ws);
+        sessions.delete(tokenId);
+
+        console.log(`🚪 Logged out: ${session.username}${isDisconnect ? ' (disconnect)' : ''}`);
+        broadcastUserList();
+    } catch (e) {
+        console.error('❌ Logout error:', e);
     }
-
-    sessions.delete(tokenId);
-    wsToToken.delete(ws);
-
-    console.log(`🚪 Logged out: ${session.username}${isDisconnect ? ' (disconnect)' : ''}`);
-    broadcastUserList();
 }
 
 // ============================================================================
@@ -335,8 +358,8 @@ function handleMessage(ws, sender, { text, privateTo, timestamp, encrypted, hint
 
     const trimmedText = text.substring(0, MESSAGE_MAX_LENGTH);
 
-    // XSS защита
-    if (trimmedText.includes('<script') || trimmedText.includes('javascript:')) {
+    // XSS защита - более строгая проверка
+    if (trimmedText.includes('<script') || trimmedText.includes('javascript:') || trimmedText.includes('onerror=')) {
         console.warn(`🚫 XSS attempt from ${sender}`);
         return ws.send(JSON.stringify({ type: 'error', message: 'Недопустимое содержимое' }));
     }
@@ -368,30 +391,35 @@ function handleMessage(ws, sender, { text, privateTo, timestamp, encrypted, hint
         replyTo: replyTo || null
     };
 
-    if (privateTo && typeof privateTo === 'string') {
-        if (privateTo.length > USERNAME_MAX_LENGTH) {
-            return ws.send(JSON.stringify({ type: 'error', message: 'Неверное имя получателя' }));
-        }
+    try {
+        if (privateTo && typeof privateTo === 'string') {
+            if (privateTo.length > USERNAME_MAX_LENGTH) {
+                return ws.send(JSON.stringify({ type: 'error', message: 'Неверное имя получателя' }));
+            }
 
-        message.privateTo = privateTo;
-        const recipient = users.get(privateTo);
+            message.privateTo = privateTo;
+            const recipient = users.get(privateTo);
 
-        if (recipient) {
-            for (const [_, device] of recipient.devices.entries()) {
-                if (device.ws?.readyState === WebSocket.OPEN) {
-                    device.ws.send(JSON.stringify(message));
+            if (recipient) {
+                for (const [_, device] of recipient.devices.entries()) {
+                    if (device.ws?.readyState === WebSocket.OPEN) {
+                        device.ws.send(JSON.stringify(message));
+                    }
                 }
             }
-        }
 
-        // ✨ ИЗМЕНЕНО: Отправляем подтверждение доставки отправителю
-        ws.send(JSON.stringify({
-            type: 'message_confirmed',
-            timestamp: message.timestamp,
-            confirmed: true
-        }));
-    } else {
-        broadcast(message, ws);
+            // ✨ ИЗМЕНЕНО: Отправляем подтверждение доставки отправителю
+            ws.send(JSON.stringify({
+                type: 'message_confirmed',
+                timestamp: message.timestamp,
+                confirmed: true
+            }));
+        } else {
+            broadcast(message, ws);
+        }
+    } catch (e) {
+        console.error('❌ SendMessage error:', e);
+        ws.send(JSON.stringify({ type: 'error', message: 'Ошибка при отправке сообщения' }));
     }
 }
 
@@ -462,6 +490,39 @@ function handleDeleteMessage(ws, sender, { timestamp, chatWith }) {
     }
 
     console.log(`🗑️ Message deleted by ${sender}: ${timestamp}`);
+}
+
+/**
+ * ✨ Обработка реакции на сообщение
+ */
+function handleMessageReaction(ws, sender, { timestamp, reaction, add, privateTo }) {
+    if (!timestamp || !reaction) return;
+
+    // Рассылаем реакцию всем в чате
+    const reactionMessage = {
+        type: 'message_reaction',
+        timestamp: timestamp,
+        reactions: {} // Сервер не хранит реакции, просто пересылает
+    };
+
+    if (privateTo) {
+        // Приватное сообщение
+        const recipient = users.get(privateTo);
+        if (recipient) {
+            for (const [_, device] of recipient.devices.entries()) {
+                if (device.ws?.readyState === WebSocket.OPEN) {
+                    device.ws.send(JSON.stringify(reactionMessage));
+                }
+            }
+        }
+        // Отправляем подтверждение отправителю реакции
+        ws.send(JSON.stringify(reactionMessage));
+    } else {
+        // Общее сообщение
+        broadcast(reactionMessage, ws);
+    }
+
+    console.log(`😊 Reaction ${reaction} by ${sender} on ${timestamp}`);
 }
 
 function handleUpdateVisibility(ws, username, { isVisible }) {
@@ -575,6 +636,10 @@ wss.on('connection', (ws, req) => {
             case 'delete_message':
                 if (session) handleDeleteMessage(ws, username, data);
                 break;
+            // ✨ Обработка реакции на сообщение
+            case 'message_reaction':
+                if (session) handleMessageReaction(ws, username, data);
+                break;
             // ✨ ИЗМЕНЕНО: Обработка открытия чата
             case 'chat_open':
                 if (session) handleChatOpen(ws, username, data);
@@ -591,8 +656,12 @@ wss.on('connection', (ws, req) => {
     ws.on('close', (code, reason) => {
         console.log(`🔌 Connection closed: ${code} ${reason || ''}`);
         if (ws.pingInterval) clearInterval(ws.pingInterval);
+        
+        // Сначала получаем tokenId и удаляем сессию
         const tokenId = wsToToken.get(ws);
-        if (tokenId) handleLogout(ws, tokenId, true);
+        if (tokenId) {
+            handleLogout(ws, tokenId, true);
+        }
     });
 
     ws.on('error', (err) => {
