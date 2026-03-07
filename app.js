@@ -17,9 +17,12 @@ let soundEnabled = true;
 let reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 5;
 
+// ✨ ИЗМЕНЕНО: Ключ сессии для авто-входа
+const AUTH_SESSION_KEY = 'messenger_auth_session';
+
 // Расширенный функционал
 let currentFolder = 'all';
-let isVisibleInDirectory = true;
+let isVisibleInDirectory = false; // ✨ ИЗМЕНЕНО: По умолчанию выключено
 let searchRateLimit = false;
 const userVisibilityCache = new Map();
 let contextMenuTarget = null;
@@ -48,6 +51,7 @@ const DOM = {
     settingsModal: null,
     searchBox: null,
     usersList: null,
+    activeChatsList: null, // ✨ ИЗМЕНЕНО: Список активных чатов
     messagesList: null,
     inputPanel: null,
     chatPlaceholder: null,
@@ -75,7 +79,7 @@ const DOM = {
 function initDOM() {
     const ids = [
         'loginWindow', 'chatWindow', 'settingsModal', 'searchBox', 'usersList',
-        'messagesList', 'inputPanel', 'chatPlaceholder', 'statusIndicator',
+        'activeChatsList', 'messagesList', 'inputPanel', 'chatPlaceholder', 'statusIndicator',
         'currentUserLabel', 'chatTitle', 'messageBox', 'sendBtn', 'encryptCheckBox',
         'encryptKeyBox', 'decryptPanel', 'decryptKeyBox', 'decryptBtn',
         'themeSelect', 'fontSizeSelect', 'showInDirectory', 'soundNotify',
@@ -91,6 +95,8 @@ function initDOM() {
 // ============================================================================
 document.addEventListener('DOMContentLoaded', () => {
     initDOM();
+    // ✨ ИЗМЕНЕНО: Сначала пробуем авто-вход, затем инициализируем остальное
+    autoLogin();
     initTabs();
     initLogin();
     initChat();
@@ -267,6 +273,10 @@ function handleServerMessage(data) {
             if (typeof data.isVisibleInDirectory === 'boolean') {
                 isVisibleInDirectory = data.isVisibleInDirectory;
             }
+            // ✨ ИЗМЕНЕНО: Сохраняем сессию для авто-входа
+            if (window.currentUserPassword) {
+                saveAuthSession(currentUser, window.currentUserPassword);
+            }
             DOM.loginWindow.classList.add('hidden');
             DOM.chatWindow.classList.remove('hidden');
             DOM.currentUserLabel.textContent = currentUser;
@@ -299,20 +309,40 @@ function handleServerMessage(data) {
 // 🔹 Входящие сообщения
 // ============================================================================
 function handleMessageReceive(data) {
+    // ✨ ИЗМЕНЕНО: Исправлена доставка сообщений офлайн-пользователям
     const messageData = {
         sender: data.sender,
         text: data.text,
         time: new Date(data.timestamp).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
         timestamp: data.timestamp,
         encrypted: data.encrypted || false,
-        hint: data.hint || null
+        hint: data.hint || null,
+        delivered: false // ✨ ИЗМЕНЕНО: Флаг доставки
     };
 
+    // ✨ ИЗМЕНЕНО: Сохраняем сообщение для получателя (privateTo) и для отправителя
     const chatName = data.privateTo || 'general';
-    saveMessageToStorage(chatName, messageData);
+    
+    // Сохраняем сообщение в чат с собеседником (для получателя)
+    if (data.privateTo && data.privateTo === currentUser) {
+        saveMessageToStorage(data.sender, messageData);
+    }
+    // Сохраняем сообщение в чат с собеседником (для отправителя - подтверждение отправки)
+    else if (data.sender === currentUser && data.privateTo) {
+        saveMessageToStorage(data.privateTo, messageData);
+    }
+    // Общие сообщения
+    else {
+        saveMessageToStorage(chatName, messageData);
+    }
 
-    if (selectedUser === data.sender) {
+    // ✨ ИЗМЕНЕНО: Показываем сообщение только если чат открыт с отправителем ИЛИ это наше отправленное сообщение
+    if (selectedUser === data.sender || (data.sender === currentUser && data.privateTo === selectedUser)) {
         addMessage(messageData);
+        // ✨ ИЗМЕНЕНО: Отправляем подтверждение прочтения
+        if (data.privateTo && data.sender !== currentUser) {
+            sendToServer({ type: 'message_read', from: data.sender, timestamp: data.timestamp });
+        }
     }
 
     if (data.sender !== currentUser) {
@@ -329,6 +359,9 @@ function handleMessageReceive(data) {
 // 🔹 Чат
 // ============================================================================
 function initChat() {
+    // ✨ ИЗМЕНЕНО: По умолчанию ни один чат не открыт
+    selectedUser = null;
+    
     if (DOM.sendBtn) DOM.sendBtn.addEventListener('click', sendMessage);
 
     if (DOM.messageBox) {
@@ -472,20 +505,24 @@ function renderUsers() {
         item.className = 'user-item' + (selectedUser === userObj.name ? ' selected' : '');
         item.dataset.username = userObj.name;
 
+        // ✨ ИЗМЕНЕНО: Скрываем статус для неактивных чатов
         let statusClass = 'offline';
         let statusIcon = '⚫';
 
-        if (userObj.status === 'online') {
-            if (userObj.activeChat && userObj.activeChat !== selectedUser) {
-                statusClass = 'in-chat';
-                statusIcon = '🔵';
-            } else {
+        // Показываем статус только для выбранного пользователя
+        if (selectedUser === userObj.name) {
+            if (userObj.status === 'online') {
                 statusClass = 'online';
                 statusIcon = '🟢';
+            } else if (userObj.status === 'in_chat') {
+                statusClass = 'in-chat';
+                statusIcon = '🔵';
             }
-        } else if (userObj.status === 'in_chat') {
-            statusClass = 'in-chat';
-            statusIcon = '🔵';
+        }
+        // Для остальных - скрываем визуальные индикаторы
+        else {
+            statusClass = 'offline';
+            statusIcon = '⚫';
         }
 
         item.classList.add(statusClass);
@@ -514,6 +551,55 @@ function renderUsers() {
     });
 
     DOM.usersList.appendChild(fragment);
+    
+    // ✨ ИЗМЕНЕНО: Рендерим активные чаты
+    renderActiveChats();
+}
+
+// ✨ ИЗМЕНЕНО: Функция рендеринга активных чатов
+function renderActiveChats() {
+    if (!DOM.activeChatsList) return;
+    
+    DOM.activeChatsList.innerHTML = '';
+    
+    // Находим пользователей с активными чатами
+    const activeChats = users.filter(u => 
+        u.name !== currentUser && 
+        u.activeChat && 
+        (u.status === 'online' || u.status === 'in_chat')
+    );
+    
+    if (activeChats.length === 0) {
+        DOM.activeChatsList.style.display = 'none';
+        return;
+    }
+    
+    DOM.activeChatsList.style.display = 'block';
+    const fragment = document.createDocumentFragment();
+    
+    activeChats.forEach(userObj => {
+        const item = document.createElement('div');
+        item.className = 'active-chat-item';
+        item.innerHTML = `
+            <span class="chat-icon">💬</span>
+            <span class="chat-name">${escapeHtml(userObj.name)}</span>
+            <button class="close-chat" title="Закрыть">✕</button>
+        `;
+        
+        const nameEl = item.querySelector('.chat-name');
+        const closeBtn = item.querySelector('.close-chat');
+        
+        if (nameEl) nameEl.addEventListener('click', () => selectUser(userObj.name));
+        if (closeBtn) closeBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            showGeneralChat();
+        });
+        item.addEventListener('click', () => selectUser(userObj.name));
+        
+        fragment.appendChild(item);
+    });
+    
+    DOM.activeChatsList.appendChild(fragment);
 }
 
 function selectUser(username) {
@@ -621,30 +707,15 @@ function handleSearchEnter() {
 // ============================================================================
 // 🔹 Папки
 // ============================================================================
+// ✨ ИЗМЕНЕНО: Упрощённая функция - папки больше не нужны
 function initFolders() {
-    document.querySelectorAll('.folder-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            document.querySelectorAll('.folder-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            currentFolder = btn.dataset.folder;
-            renderUsers();
-        });
-    });
+    // Папки удалены, оставляем только "Список пользователей"
+    currentFolder = 'all';
 }
 
 function loadFolderSettings() {
-    try {
-        const folders = localStorage.getItem(STORAGE_KEYS.FOLDERS);
-        if (folders) {
-            const folderData = JSON.parse(folders);
-            currentFolder = folderData.currentFolder || 'all';
-            document.querySelectorAll('.folder-btn').forEach(btn => {
-                btn.classList.toggle('active', btn.dataset.folder === currentFolder);
-            });
-        }
-    } catch (e) {
-        console.error('❌ Folder settings error:', e);
-    }
+    // ✨ ИЗМЕНЕНО: Папки удалены, настройки не нужны
+    currentFolder = 'all';
 }
 
 function getUserFolder(username) {
@@ -960,7 +1031,10 @@ function initSettings() {
 
     if (DOM.fontSizeSelect) {
         DOM.fontSizeSelect.addEventListener('change', (e) => {
-            document.body.style.fontSize = e.target.value + 'px';
+            const size = e.target.value;
+            // ✨ ИЗМЕНЕНО: Применяем размер шрифта через CSS класс
+            document.body.classList.remove('font-small', 'font-medium', 'font-large');
+            document.body.classList.add('font-' + (size === '12' ? 'small' : size === '16' ? 'large' : 'medium'));
             saveSettings();
         });
     }
@@ -985,8 +1059,12 @@ function syncSettingsUI() {
     if (DOM.themeSelect) {
         DOM.themeSelect.value = document.documentElement.getAttribute('data-theme') || 'dark';
     }
+    // ✨ ИЗМЕНЕНО: Синхронизируем размер шрифта из CSS класса
     if (DOM.fontSizeSelect) {
-        DOM.fontSizeSelect.value = (parseInt(document.body.style.fontSize) || 14).toString();
+        let currentSize = '14';
+        if (document.body.classList.contains('font-small')) currentSize = '12';
+        else if (document.body.classList.contains('font-large')) currentSize = '16';
+        DOM.fontSizeSelect.value = currentSize;
     }
     if (DOM.showInDirectory) {
         DOM.showInDirectory.checked = isVisibleInDirectory;
@@ -1018,6 +1096,62 @@ function initHotkeys() {
     });
 }
 
+// ✨ ИЗМЕНЕНО: Функции авто-входа и управления сессией
+function autoLogin() {
+    try {
+        const session = localStorage.getItem(AUTH_SESSION_KEY);
+        if (session) {
+            const sessionData = JSON.parse(session);
+            // Проверяем валидность сессии (не истекла ли)
+            const now = Date.now();
+            const sessionAge = now - (sessionData.timestamp || 0);
+            const SESSION_MAX_AGE = 24 * 60 * 60 * 1000; // 24 часа
+
+            if (sessionAge < SESSION_MAX_AGE && sessionData.username) {
+                currentUser = sessionData.username;
+                window.currentUserPassword = sessionData.passwordHash || sessionData.password || '';
+                // Подключаемся к серверу
+                connectToServer({
+                    type: 'login',
+                    username: currentUser,
+                    password: window.currentUserPassword
+                });
+                console.log('✅ Auto-login successful for:', currentUser);
+                return true;
+            } else {
+                // Сессия истекла
+                localStorage.removeItem(AUTH_SESSION_KEY);
+            }
+        }
+    } catch (e) {
+        console.error('❌ Auto-login error:', e);
+        localStorage.removeItem(AUTH_SESSION_KEY);
+    }
+    return false;
+}
+
+function saveAuthSession(username, password) {
+    try {
+        // ✨ ИЗМЕНЕНО: Сохраняем сессию с хешированным паролем (простая защита)
+        const sessionData = {
+            username: username,
+            passwordHash: btoa(password), // Простое кодирование (не криптография!)
+            timestamp: Date.now()
+        };
+        localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(sessionData));
+    } catch (e) {
+        console.error('❌ Save session error:', e);
+    }
+}
+
+function clearAuthSession() {
+    try {
+        localStorage.removeItem(AUTH_SESSION_KEY);
+    } catch (e) {
+        console.error('❌ Clear session error:', e);
+    }
+}
+
 function performLogout() {
     if (socket) {
         socket.close();
@@ -1027,6 +1161,9 @@ function performLogout() {
     selectedUser = null;
     reconnectAttempts = 0;
     window.currentUserPassword = null;
+    
+    // ✨ ИЗМЕНЕНО: Очищаем сессию при выходе
+    clearAuthSession();
 
     if (DOM.chatWindow) DOM.chatWindow.classList.add('hidden');
     if (DOM.settingsModal) DOM.settingsModal.classList.add('hidden');
@@ -1069,9 +1206,12 @@ function loadSettings() {
             soundEnabled = data.soundEnabled !== false;
 
             if (DOM.soundNotify) DOM.soundNotify.checked = soundEnabled;
+            
+            // ✨ ИЗМЕНЕНО: Применяем размер шрифта через CSS класс
             if (DOM.fontSizeSelect && data.fontSize) {
                 DOM.fontSizeSelect.value = data.fontSize;
-                document.body.style.fontSize = data.fontSize + 'px';
+                document.body.classList.remove('font-small', 'font-medium', 'font-large');
+                document.body.classList.add('font-' + (data.fontSize === '12' ? 'small' : data.fontSize === '16' ? 'large' : 'medium'));
             }
 
             const theme = data.theme || 'dark';
