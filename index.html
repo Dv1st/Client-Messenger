@@ -12,6 +12,18 @@
 <body>
     <!-- 🔹 Авторизация -->
     <div id="loginWindow" class="window">
+        <!-- Анимированный фон с кругами -->
+        <div class="login-background">
+            <svg class="circle-ring-svg" viewBox="0 0 800 800">
+                <!-- Круги будут добавлены через JavaScript -->
+                <g id="circlesGroup"></g>
+            </svg>
+            <!-- Кнопка отключения анимации -->
+            <button class="animation-toggle-btn" id="animationToggleBtn" type="button" title="Включить/выключить анимацию">
+                ❄️
+            </button>
+        </div>
+        
         <div class="login-container">
             <h1 class="logo">CLIENT</h1>
             <div class="tabs" role="tablist">
@@ -79,6 +91,20 @@
                         <span class="section-title">💬 Активные чаты</span>
                     </div>
                     <div class="active-chats-list" id="activeChatsList" role="list" aria-label="Активные чаты"></div>
+                </div>
+
+                <!-- 2.1 Список групп -->
+                <div class="groups-section">
+                    <div class="section-header groups-section-header">
+                        <span class="section-title">👥 Группы</span>
+                        <button class="collapse-section-btn" id="collapseGroupsBtn" type="button" title="Свернуть/Развернуть" aria-label="Свернуть список групп">
+                            <span class="collapse-icon">▼</span>
+                        </button>
+                        <button class="add-group-btn" id="addGroupBtn" type="button" title="Создать группу" aria-label="Создать группу">
+                            ➕
+                        </button>
+                    </div>
+                    <div class="groups-list" id="groupsList" role="list" aria-label="Список групп"></div>
                 </div>
 
                 <!-- 3. Разделитель -->
@@ -248,6 +274,11 @@
                         <label for="showInDirectory">Отображать в списке пользователей</label>
                         <input type="checkbox" id="showInDirectory">
                     </div>
+                    <div class="setting-item">
+                        <label for="allowGroupInvite">👥 Разрешить добавлять меня в групповые чаты</label>
+                        <input type="checkbox" id="allowGroupInvite">
+                        <small class="hint">По умолчанию: отключено. Включите, если хотите, чтобы другие могли добавлять вас в группы</small>
+                    </div>
                 </section>
 
                 <!-- Выход -->
@@ -262,6 +293,142 @@
     <audio id="notificationSound" preload="auto" aria-hidden="true">
         <source src="https://assets.mixkit.co/active_storage/sfx/2354/2354-preview.mp3" type="audio/mpeg">
     </audio>
+
+    <!-- 👥 Модальное окно создания группы -->
+    <div id="createGroupModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="createGroupTitle">
+        <div class="modal-content modal-content-small">
+            <header class="modal-header">
+                <h2 id="createGroupTitle">👥 Создать группу</h2>
+                <button class="modal-close" id="closeCreateGroup" type="button" aria-label="Закрыть">&times;</button>
+            </header>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="groupNameInput">Название группы</label>
+                    <input type="text" id="groupNameInput" placeholder="Введите название группы" maxlength="50">
+                </div>
+                <div class="form-group">
+                    <label>Участники (выберите пользователей)</label>
+                    <div class="group-members-select" id="groupMembersSelect">
+                        <!-- Список пользователей для выбора -->
+                    </div>
+                    <small class="hint">Выберите хотя бы одного пользователя. Пользователи должны разрешить добавление в группы.</small>
+                </div>
+                <button id="createGroupConfirmBtn" class="btn-primary" type="button">Создать группу</button>
+                <div id="createGroupStatus" class="status-message" role="alert" aria-live="polite"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Скрипт анимации кругов -->
+    <script>
+        (function() {
+            const circlesGroup = document.getElementById('circlesGroup');
+            const toggleBtn = document.getElementById('animationToggleBtn');
+            if (!circlesGroup) {
+                console.error('circlesGroup not found');
+                return;
+            }
+
+            const CONFIG = {
+                totalCircles: 16,
+                ringRadius: 355,            // Радиус окружности
+                circleRadius: 30,
+                baseSpeed: 0.0002,
+                centerX: 400,
+                centerY: 400
+            };
+
+            let animationEnabled = true;
+            const circles = [];
+
+            for (let i = 0; i < CONFIG.totalCircles; i++) {
+                const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                circle.setAttribute('class', 'circle-element');
+                circle.setAttribute('r', CONFIG.circleRadius);
+                circlesGroup.appendChild(circle);
+
+                circles.push({
+                    element: circle,
+                    baseAngle: (i / CONFIG.totalCircles) * 2 * Math.PI
+                });
+            }
+
+            const angleStep = (2 * Math.PI) / CONFIG.totalCircles;
+            let globalRotation = 0;
+
+            // Обработчик кнопки
+            if (toggleBtn) {
+                toggleBtn.addEventListener('click', function() {
+                    animationEnabled = !animationEnabled;
+                    this.classList.toggle('paused', !animationEnabled);
+                    this.textContent = animationEnabled ? '❄️' : '▶️';
+                    this.title = animationEnabled ? 'Выключить анимацию' : 'Включить анимацию';
+                });
+            }
+
+            function animate() {
+                if (animationEnabled) {
+                    globalRotation += CONFIG.baseSpeed * 16;
+                }
+
+                circles.forEach((circle, idx) => {
+                    let currentAngle = (circle.baseAngle + globalRotation) % (2 * Math.PI);
+                    if (currentAngle < 0) currentAngle += 2 * Math.PI;
+
+                    // Расстояние от правой точки (0 радиан = 3 часа)
+                    let dist = currentAngle;
+                    if (dist > Math.PI) dist = 2 * Math.PI - dist;
+
+                    let opacity;
+                    const steps = dist / angleStep;
+
+                    // Плавное изменение прозрачности с синусоидальной интерполяцией
+                    if (steps < 1) {
+                        // Зона полной невидимости (самый правый круг)
+                        opacity = 0;
+                    } else if (steps < 2) {
+                        // Плавное появление от 0% до 30%
+                        const t = (steps - 1);
+                        opacity = t * t * (3 - 2 * t) * 0.3; // Smoothstep
+                    } else if (steps < 4) {
+                        // Плавное появление от 30% до 100%
+                        const t = (steps - 2) / 2;
+                        opacity = 0.3 + t * t * (3 - 2 * t) * 0.7; // Smoothstep
+                    } else {
+                        // Полная видимость
+                        opacity = 1;
+                    }
+
+                    circle.element.setAttribute('opacity', opacity.toFixed(3));
+
+                    const x = CONFIG.centerX + Math.cos(currentAngle) * CONFIG.ringRadius;
+                    const y = CONFIG.centerY + Math.sin(currentAngle) * CONFIG.ringRadius;
+
+                    circle.element.setAttribute('cx', x);
+                    circle.element.setAttribute('cy', y);
+                });
+
+                requestAnimationFrame(animate);
+            }
+
+            animate();
+
+            function handleResize() {
+                const isMobile = window.innerWidth <= 768;
+                CONFIG.ringRadius = isMobile ? 200 : 355;  // Радиус окружности
+                CONFIG.circleRadius = isMobile ? 19 : 30;
+                CONFIG.centerX = isMobile ? 225 : 400;
+                CONFIG.centerY = isMobile ? 225 : 400;
+
+                circles.forEach(circle => {
+                    circle.element.setAttribute('r', CONFIG.circleRadius);
+                });
+            }
+
+            window.addEventListener('resize', handleResize);
+            handleResize();
+        })();
+    </script>
 
     <script src="app.js"></script>
 </body>
