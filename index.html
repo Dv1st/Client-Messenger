@@ -3,12 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <title>Client - Web Messenger</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💬</text></svg>">
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <!-- 🔹 Окно авторизации -->
+    <!-- 🔹 Авторизация -->
     <div id="loginWindow" class="window">
         <div class="login-container">
             <h1 class="logo">CLIENT</h1>
@@ -16,119 +17,133 @@
                 <button class="tab-btn active" data-tab="login">Вход</button>
                 <button class="tab-btn" data-tab="register">Регистрация</button>
             </div>
-            <!-- Вкладка ВХОД -->
+
             <div id="loginTab" class="tab-content active">
                 <div class="form-group">
-                    <label>Имя пользователя</label>
+                    <label for="loginUsername">Имя пользователя</label>
                     <input type="text" id="loginUsername" placeholder="Введите имя" autocomplete="username">
                 </div>
                 <div class="form-group">
-                    <label>Пароль</label>
+                    <label for="loginPassword">Пароль</label>
                     <input type="password" id="loginPassword" placeholder="Введите пароль" autocomplete="current-password">
                 </div>
                 <button id="loginBtn" class="btn-primary">Войти</button>
             </div>
-            <!-- Вкладка РЕГИСТРАЦИЯ -->
+
             <div id="registerTab" class="tab-content">
                 <div class="form-group">
-                    <label>Имя пользователя</label>
+                    <label for="regUsername">Имя пользователя</label>
                     <input type="text" id="regUsername" placeholder="Введите имя" autocomplete="username">
                 </div>
                 <div class="form-group">
-                    <label>Пароль (мин. 4 символа)</label>
+                    <label for="regPassword">Пароль (мин. 4 символа)</label>
                     <input type="password" id="regPassword" placeholder="Введите пароль" autocomplete="new-password">
                 </div>
                 <div class="form-group">
-                    <label>Подтверждение пароля</label>
+                    <label for="regConfirmPassword">Подтверждение пароля</label>
                     <input type="password" id="regConfirmPassword" placeholder="Подтвердите пароль" autocomplete="new-password">
                 </div>
                 <button id="registerBtn" class="btn-primary">Зарегистрироваться</button>
             </div>
+
             <div id="loginStatus" class="status-message"></div>
         </div>
     </div>
 
-    <!-- 🔹 Основное окно чата -->
+    <!-- 🔹 Чат -->
     <div id="chatWindow" class="window hidden">
         <div class="chat-container">
-            <!-- Левая панель: Пользователи -->
+            <!-- Левая панель -->
             <div class="sidebar">
-                <div class="search-box">
-                    <input type="text" id="searchBox" placeholder="🔍 Поиск...">
+                <!-- Папки -->
+                <div class="chat-folders">
+                    <button class="folder-btn active" data-folder="all">Все</button>
+                    <button class="folder-btn" data-folder="personal">Личное</button>
+                    <button class="folder-btn" data-folder="work">Работа</button>
                 </div>
-                <div class="users-list" id="usersList"></div>
-                <!-- Нижняя панель: Пользователь + Настройки -->
+
+                <!-- Поиск -->
+                <div class="search-box">
+                    <input type="text" id="searchBox" placeholder="🔍 Поиск..." aria-label="Поиск пользователей">
+                </div>
+
+                <!-- Список пользователей -->
+                <div class="users-list" id="usersList" role="list" aria-label="Список пользователей"></div>
+
+                <!-- Подвал -->
                 <div class="sidebar-footer">
                     <div class="current-user">
                         <span class="user-icon">👤</span>
                         <span id="currentUserLabel">Пользователь</span>
                     </div>
-                    <button id="settingsBtn" class="settings-btn" title="Настройки">⚙️</button>
+                    <button id="settingsBtn" class="settings-btn" title="Настройки" aria-label="Настройки">⚙️</button>
                 </div>
             </div>
 
-            <!-- Правая панель: Чат -->
+            <!-- Правая панель -->
             <div class="chat-main">
+                <!-- Заголовок -->
                 <div class="chat-header">
-                    <div class="status-indicator" id="statusIndicator"></div>
+                    <div class="status-indicator" id="statusIndicator" aria-hidden="true"></div>
                     <h2 id="chatTitle">Чат</h2>
                 </div>
 
-                <!-- 🪧 Заглушка: нет выбранного чата -->
+                <!-- Заглушка -->
                 <div id="chatPlaceholder" class="chat-placeholder">
                     <div class="placeholder-content">
-                        <span style="font-size: 48px; margin-bottom: 16px; display: block;">💬</span>
+                        <span aria-hidden="true" style="font-size: 48px; margin-bottom: 16px; display: block;">💬</span>
                         <h3>Выберите чат для начала общения</h3>
                         <p style="color: var(--text-secondary); margin-top: 8px;">
-                            Нажмите на пользователя в списке слева, чтобы открыть личный чат
+                            Нажмите на пользователя в списке слева
                         </p>
                     </div>
                 </div>
 
-                <!-- ✅ Панель ввода (скрыта по умолчанию, показывается при выборе чата) -->
-                <div class="input-panel hidden" id="inputPanel">
+                <!-- Сообщения -->
+                <div class="messages-list hidden" id="messagesList" role="log" aria-label="Сообщения"></div>
+
+                <!-- Панель ввода -->
+                <div class="input-panel bottom hidden" id="inputPanel">
                     <div class="input-wrapper">
-                        <textarea id="messageBox" placeholder="Введите сообщение..." rows="2"></textarea>
+                        <textarea id="messageBox" placeholder="Введите сообщение..." rows="1" aria-label="Сообщение"></textarea>
                         <div class="input-actions">
-                            <input type="text" id="encryptKeyBox" placeholder="Ключ..." class="hidden encrypt-input">
+                            <input type="text" id="encryptKeyBox" placeholder="Ключ..." class="hidden encrypt-input" aria-label="Ключ шифрования">
                             <div class="buttons-group">
                                 <label class="encrypt-toggle" title="Шифровать">
-                                    <input type="checkbox" id="encryptCheckBox"> 🔐
+                                    <input type="checkbox" id="encryptCheckBox" aria-label="Шифрование">
                                 </label>
-                                <button id="sendBtn" class="send-btn">➤</button>
+                                <button id="sendBtn" class="send-btn" title="Отправить" aria-label="Отправить">➤</button>
                             </div>
                         </div>
                     </div>
                     <div id="decryptPanel" class="decrypt-panel hidden">
-                        <input type="text" id="decryptKeyBox" placeholder="Фраза для расшифровки...">
-                        <button id="decryptBtn" class="btn-success">🔓</button>
+                        <input type="text" id="decryptKeyBox" placeholder="Ключ для расшифровки..." aria-label="Ключ расшифровки">
+                        <button id="decryptBtn" class="btn-success" title="Расшифровать" aria-label="Расшифровать">🔓</button>
                     </div>
                 </div>
-
-                <div class="messages-list hidden" id="messagesList"></div>
             </div>
         </div>
     </div>
 
-    <!-- 🔹 Модальное окно настроек -->
-    <div id="settingsModal" class="modal hidden">
+    <!-- 🔹 Настройки -->
+    <div id="settingsModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
         <div class="modal-content">
             <div class="modal-header">
-                <h2>⚙️ Настройки</h2>
-                <button class="modal-close" id="closeSettings">&times;</button>
+                <h2 id="settingsTitle">⚙️ Настройки</h2>
+                <button class="modal-close" id="closeSettings" aria-label="Закрыть">&times;</button>
             </div>
             <div class="modal-body">
                 <div class="settings-section">
                     <h3>🎨 Оформление</h3>
                     <div class="setting-item">
-                        <label>Тема оформления</label>
+                        <label for="themeSelect">Тема</label>
                         <select id="themeSelect">
                             <option value="dark">Тёмная</option>
                             <option value="light">Светлая</option>
                         </select>
                     </div>
                     <div class="setting-item">
-                        <label>Размер шрифта</label>
+                        <label for="fontSizeSelect">Размер шрифта</label>
                         <select id="fontSizeSelect">
                             <option value="12">Маленький</option>
                             <option value="14" selected>Средний</option>
@@ -140,11 +155,11 @@
                 <div class="settings-section">
                     <h3>🔔 Уведомления</h3>
                     <div class="setting-item">
-                        <label>🔊 Звуковые уведомления</label>
+                        <label for="soundNotify">🔊 Звуковые</label>
                         <input type="checkbox" id="soundNotify" checked>
                     </div>
                     <div class="setting-item">
-                        <label>📬 Push-уведомления</label>
+                        <label for="pushNotify">📬 Push</label>
                         <input type="checkbox" id="pushNotify">
                     </div>
                 </div>
@@ -152,20 +167,24 @@
                 <div class="settings-section">
                     <h3>🔒 Приватность</h3>
                     <div class="setting-item">
-                        <label>Показывать статус "онлайн"</label>
+                        <label for="showOnline">Показывать "онлайн"</label>
                         <input type="checkbox" id="showOnline" checked>
+                    </div>
+                    <div class="setting-item">
+                        <label for="showInDirectory">Отображать в списке</label>
+                        <input type="checkbox" id="showInDirectory" checked>
                     </div>
                 </div>
 
                 <div class="settings-section">
-                    <button id="logoutBtn" class="btn-logout">🚪 Выйти из аккаунта</button>
+                    <button id="logoutBtn" class="btn-logout">🚪 Выйти</button>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- 🔔 Звук уведомления -->
-    <audio id="notificationSound" preload="auto">
+    <!-- 🔔 Звук -->
+    <audio id="notificationSound" preload="auto" aria-hidden="true">
         <source src="https://assets.mixkit.co/active_storage/sfx/2354/2354-preview.mp3" type="audio/mpeg">
     </audio>
 
