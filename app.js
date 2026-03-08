@@ -53,7 +53,7 @@ let viewedProfileUserId = null; // ID пользователя, чей проф�
 // ============================================================================
 // 🔹 Константы
 // ============================================================================
-const WS_URL = 'ws://localhost:3000';
+const WS_URL = 'wss://client-messenger-production.up.railway.app';
 const DEBOUNCE_DELAY = 300;
 const MESSAGE_MAX_LENGTH = 10000;
 const MAX_MESSAGES_IN_STORAGE = 100;
@@ -3477,7 +3477,7 @@ function showMessageContextMenu(e, messageEl, messageData, isOwn) {
     menu.style.left = left + 'px';
     menu.style.top = top + 'px';
 
-    // ✨ Реакции (пока����ываем всегда)
+    // ���� Реакции (пока����ываем всегда)
     const reactionsBtn = createMessageMenuItem('😊 Реакции', () => {
         showReactionPicker(e.pageX, e.pageY, messageData, messageEl);
         closeMessageContextMenu();
