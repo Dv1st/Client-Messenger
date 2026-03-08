@@ -1468,6 +1468,10 @@ body.font-large { font-size: 16px; }
     white-space: nowrap;
 }
 
+.chat-header h2.hidden {
+    display: none;
+}
+
 /* Статус пользователя в заголовке */
 .chat-user-status {
     display: flex;
@@ -2625,6 +2629,7 @@ body.font-large { font-size: 16px; }
     align-items: center;
     justify-content: center;
     gap: 8px;
+    margin-top: 12px;
 }
 
 .about-developer-btn:hover {

@@ -625,17 +625,24 @@ function handleRegister(ws, { username, password }, clientIp) {
     }
 
     if (!/^[A-Za-z0-9_]{3,20}$/.test(username)) {
+        console.log(`🚫 Register rejected - invalid username format: ${username}`);
         return ws.send(JSON.stringify({ type: 'register_error', message: 'Имя: только латиница, цифры, _' }));
     }
 
     if (users.has(username)) {
+        console.log(`🚫 Register rejected - user already exists: ${username}`);
         return ws.send(JSON.stringify({ type: 'register_error', message: 'Пользователь уже существует' }));
     }
+
+    console.log(`📝 Registering new user: ${username}`);
 
     // Создание пользователя
     try {
         const salt = generateSalt();
         const passwordHash = hashPassword(password, salt);
+
+        console.log(`🔐 Generated salt: ${salt.substring(0, 16)}...`);
+        console.log(`🔐 Generated passwordHash: ${passwordHash.substring(0, 16)}...`);
 
         const userData = {
             passwordHash: passwordHash,
@@ -660,6 +667,10 @@ function handleRegister(ws, { username, password }, clientIp) {
         saveUserToDatabase(username, userData).catch(err => {
             console.error('❌ Failed to save user to database:', err);
         });
+
+        console.log(`✅ User saved to memory: ${username}`);
+        console.log(`   passwordHash: ${passwordHash.substring(0, 16)}...`);
+        console.log(`   salt: ${salt.substring(0, 16)}...`);
 
         console.log(`✅ Registered: ${username} from ${clientIp}`);
 

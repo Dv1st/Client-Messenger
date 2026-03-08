@@ -236,7 +236,7 @@ function isValidUsername(username) {
  * @returns {boolean} - Валиден ли пароль
  */
 function isValidPassword(password) {
-    return typeof password === 'string' && password.length >= 4 && password.length <= 100;
+    return typeof password === 'string' && password.length >= 8 && password.length <= 100;
 }
 
 /**
@@ -467,8 +467,8 @@ function handleRegister() {
     const confirm = confirmInput.value;
 
     // 🔒 Дополнительная проверка перед отправкой
-    if (!username || !password || password.length < 4) {
-        showStatus('Введите имя пользователя и пароль (мин. 4 символа)');
+    if (!username || !password || password.length < 8) {
+        showStatus('Введите имя пользователя и пароль (мин. 8 символов)');
         return;
     }
 
@@ -478,7 +478,7 @@ function handleRegister() {
     }
 
     if (!isValidPassword(password)) {
-        showStatus('Пароль должен содержать 4-100 символов');
+        showStatus('Пароль должен содержать 8-100 символов');
         return;
     }
 
@@ -1190,6 +1190,14 @@ function handleMessageReceive(data) {
 // ============================================================================
 function initChat() {
     selectedUser = null;
+
+    // Скрываем заголовок и кнопку меню при инициализации
+    if (DOM.chatTitle) {
+        DOM.chatTitle.classList.add('hidden');
+    }
+    if (DOM.chatMenuBtn) {
+        DOM.chatMenuBtn.classList.add('hidden');
+    }
 
     if (DOM.sendBtn) DOM.sendBtn.addEventListener('click', sendMessage);
 
@@ -2219,6 +2227,7 @@ function selectUser(username) {
         // Обновляем заголовок чата со значками и аватаркой
         updateChatTitleWithBadges();
         updateChatHeaderAvatar(username);
+        DOM.chatTitle.classList.remove('hidden');
     }
 
     updateUserItemSelection(username);
@@ -2274,9 +2283,10 @@ function selectUser(username) {
  */
 function showGeneralChat() {
     selectedUser = null;
-    
+
     if (DOM.chatTitle) {
-        DOM.chatTitle.textContent = '💬 Общий чат';
+        DOM.chatTitle.textContent = 'Чат';
+        DOM.chatTitle.classList.add('hidden');
     }
 
     updateUserItemSelection(null);
@@ -2286,13 +2296,13 @@ function showGeneralChat() {
     }
 
     DOM.chatUserStatus?.classList.add('hidden');
-    
+
     // Скрываем кнопку меню чата
     if (DOM.chatMenuBtn) {
         DOM.chatMenuBtn.classList.add('hidden');
     }
     closeChatMenu();
-    
+
     checkMobileView();
 
     sendToServer({ type: 'chat_open', chatWith: null });
@@ -2369,6 +2379,7 @@ function selectGroup(groupId) {
 
     if (DOM.chatTitle) {
         DOM.chatTitle.textContent = '👥 ' + group.name;
+        DOM.chatTitle.classList.remove('hidden');
     }
 
     updateUserItemSelection(null);
@@ -3492,7 +3503,7 @@ function addMessage(data, isOwn = false, scrollToBottom = true) {
 /**
  * Показать контекстное меню для сообщения
  * @param {MouseEvent} e - Событие мыши
- * @param {HTMLElement} messageEl - Элемент ����ообщения
+ * @param {HTMLElement} messageEl - Элемент ������ообщения
  * @param {Object} messageData - Данные сообщения
  * @param {boolean} isOwn - С��оё ли сообщение
  */
@@ -5230,7 +5241,7 @@ function autoLogin() {
 
 /**
  * Сохранение сессии пользователя
- * 🔒 Сохраняем токен сессии для авто-входа
+ * 🔒 Сохраняем токен сессии ��ля авто-входа
  * @param {string} username - Имя пользователя
  * @param {string} token - Токен сессии
  * @param {string} deviceId - ID устройства
@@ -5239,7 +5250,7 @@ function saveAuthSession(username, token, deviceId) {
     try {
         const sessionData = {
             username: username,
-            token: token, // 🔒 Токен сессии для авто-��х��да
+            token: token, // 🔒 Ток��н сессии д����я авто-��х��да
             deviceId: deviceId, // ID устройства
             passwordHint: username.substring(0, 2) + '•••', // 🔒 Безопасная подсказка
             timestamp: Date.now(),
