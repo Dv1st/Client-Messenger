@@ -85,7 +85,18 @@
                     </div>
                 </div>
 
-                <!-- 2.1 Список групп -->
+                <!-- 2. Активные чаты (пользователи) -->
+                <div class="active-chats-section">
+                    <div class="section-header active-chats-header">
+                        <span class="section-title">💬 Активные чаты</span>
+                        <button class="collapse-section-btn" id="collapseActiveChatsBtn" type="button" title="Свернуть/Развернуть" aria-label="Свернуть список активных чатов">
+                            <span class="collapse-icon">▼</span>
+                        </button>
+                    </div>
+                    <div class="active-chats-list" id="activeChatsList" role="list" aria-label="Активные чаты"></div>
+                </div>
+
+                <!-- 3. Группы -->
                 <div class="groups-section">
                     <div class="section-header groups-section-header">
                         <span class="section-title">👥 Группы</span>
@@ -101,15 +112,15 @@
                     <div class="groups-list" id="groupsList" role="list" aria-label="Список групп"></div>
                 </div>
 
-                <!-- 3. Список пользователей (включая активные чаты) -->
-                <div class="users-section">
-                    <div class="section-header users-section-header">
-                        <span class="section-title">💬 Чаты</span>
-                        <button class="collapse-section-btn" id="collapseUsersBtn" type="button" title="Свернуть/Развернуть" aria-label="Свернуть список чатов">
+                <!-- 4. Все пользователи (сворачиваемый список) -->
+                <div class="all-users-section">
+                    <div class="section-header all-users-header">
+                        <span class="section-title">👤 Пользователи</span>
+                        <button class="collapse-section-btn" id="collapseAllUsersBtn" type="button" title="Свернуть/Развернуть" aria-label="Свернуть список пользователей">
                             <span class="collapse-icon">▼</span>
                         </button>
                     </div>
-                    <div class="users-list" id="usersList" role="list" aria-label="Список чатов"></div>
+                    <div class="all-users-list" id="allUsersList" role="list" aria-label="Список пользователей"></div>
                 </div>
 
                 <!-- Подвал -->

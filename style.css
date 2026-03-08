@@ -461,6 +461,9 @@ body.font-large { font-size: 16px; }
 
 .section-header {
     padding: 10px 12px 6px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
 }
 
 .section-title {
@@ -471,12 +474,17 @@ body.font-large { font-size: 16px; }
     letter-spacing: 0.5px;
 }
 
-/* ✨ Кнопка сворачивания секции */
-.section-header.users-section-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    cursor: pointer;
+/* Сворачиваемые секции */
+.active-chats-section.collapsed .active-chats-list,
+.groups-section.collapsed .groups-list,
+.all-users-section.collapsed .all-users-list {
+    display: none;
+}
+
+.active-chats-section.collapsed .collapse-icon,
+.groups-section.collapsed .collapse-icon,
+.all-users-section.collapsed .collapse-icon {
+    transform: rotate(-90deg);
 }
 
 .collapse-section-btn {
@@ -748,45 +756,76 @@ body.font-large { font-size: 16px; }
     padding: 4px;
 }
 
-/* Элемент пользователя */
+/* Элемент пользователя (новый стиль с аватаркой) */
 .user-item {
     display: flex;
     align-items: center;
-    padding: 10px;
+    gap: 10px;
+    padding: 10px 12px;
     margin: 2px 0;
-    border-radius: var(--border-radius-sm);
+    border-radius: var(--border-radius-md);
     cursor: pointer;
     transition: background var(--transition-fast);
     position: relative;
 }
 
 .user-item:hover {
-    background: var(--element-bg);
+    background: var(--element-bg-hover);
 }
 
 .user-item.selected {
-    background: var(--element-bg);
+    background: var(--element-bg-hover);
     border-left: 3px solid var(--accent);
 }
 
-.user-item.active-chat.selected {
-    background: rgba(123, 44, 191, 0.25);
-}
-
-.user-item .status {
-    margin-right: 10px;
-    display: inline-flex;
+.user-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    overflow: hidden;
+    flex-shrink: 0;
+    background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+    display: flex;
     align-items: center;
     justify-content: center;
-    flex-shrink: 0;
-    font-size: 20px;
-    line-height: 1;
+    font-weight: 600;
+    font-size: 16px;
+    color: white;
 }
 
-.user-item .name {
+.user-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.user-avatar.avatar-placeholder {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.user-item .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    position: absolute;
+    bottom: 2px;
+    right: 28px;
+    border: 2px solid var(--panel-bg);
+}
+
+.user-item .status-dot.online {
+    background: var(--success);
+}
+
+.user-item .status-dot.offline {
+    background: var(--text-muted);
+}
+
+.user-name {
     flex: 1;
     font-weight: 500;
     font-size: 14px;
+    color: var(--text-primary);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

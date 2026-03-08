@@ -78,8 +78,9 @@ const DOM = {
     sidebarToggle: null,
     sidebarTrigger: null,
     searchBox: null,
-    usersList: null,
-    groupsList: null, // 👥 Список групп
+    activeChatsList: null,
+    groupsList: null,
+    allUsersList: null,
 
     // Чат
     messagesList: null,
@@ -144,7 +145,7 @@ const DOM = {
 function initDOM() {
     const ids = [
         'loginWindow', 'chatWindow', 'settingsModal', 'sidebar', 'sidebarToggle',
-        'sidebarTrigger', 'searchBox', 'usersList', 'groupsList',
+        'sidebarTrigger', 'searchBox', 'activeChatsList', 'groupsList', 'allUsersList',
         'messagesList', 'inputPanel', 'chatPlaceholder', 'chatTitle', 'chatUserStatus', 'backBtn',
         'scrollToBottomBtn', 'unreadCount', 'messageBox', 'sendBtn', 'encryptCheckBox',
         'encryptKeyBox', 'decryptPanel', 'decryptKeyBox', 'decryptBtn', 'themeSelect',
@@ -159,7 +160,9 @@ function initDOM() {
         'profileUserName', 'profileUserStatus', 'avatarContainer', 'avatarFileInput',
         'badgesGrid', 'editPanel', 'saveProfileBtn', 'cancelProfileBtn', 'avatarUrlInput',
         'applyAvatarUrlBtn', 'badgeVisibilityList', 'profileActionsSection', 'sendMessageBtn',
-        'profileStatusMessage'
+        'profileStatusMessage',
+        // 🔽 Новые элементы sidebar
+        'collapseActiveChatsBtn', 'collapseAllUsersBtn'
     ];
 
     ids.forEach(id => {
@@ -1079,27 +1082,24 @@ function initSidebar() {
         DOM.backBtn.addEventListener('click', showMobileChatList);
     }
 
-    // ✨ Кнопка сворачивания списка пользователей
-    const collapseUsersBtn = document.getElementById('collapseUsersBtn');
-    if (collapseUsersBtn) {
-        collapseUsersBtn.addEventListener('click', () => {
-            const usersSection = document.querySelector('.users-section');
-            if (usersSection) {
-                usersSection.classList.toggle('collapsed');
-                collapseUsersBtn.classList.toggle('collapsed');
-
-                // Сохраняем состояние
-                localStorage.setItem('users_list_collapsed', usersSection.classList.contains('collapsed'));
+    // 💬 Кнопка сворачивания активных чатов
+    const collapseActiveChatsBtn = document.getElementById('collapseActiveChatsBtn');
+    if (collapseActiveChatsBtn) {
+        collapseActiveChatsBtn.addEventListener('click', () => {
+            const activeChatsSection = document.querySelector('.active-chats-section');
+            if (activeChatsSection) {
+                activeChatsSection.classList.toggle('collapsed');
+                collapseActiveChatsBtn.classList.toggle('collapsed');
+                localStorage.setItem('active_chats_collapsed', activeChatsSection.classList.contains('collapsed'));
             }
         });
 
-        // Загружаем сохранённое состояние
-        const usersCollapsed = localStorage.getItem('users_list_collapsed') === 'true';
-        if (usersCollapsed) {
-            const usersSection = document.querySelector('.users-section');
-            if (usersSection) {
-                usersSection.classList.add('collapsed');
-                collapseUsersBtn.classList.add('collapsed');
+        const activeChatsCollapsed = localStorage.getItem('active_chats_collapsed') === 'true';
+        if (activeChatsCollapsed) {
+            const activeChatsSection = document.querySelector('.active-chats-section');
+            if (activeChatsSection) {
+                activeChatsSection.classList.add('collapsed');
+                collapseActiveChatsBtn.classList.add('collapsed');
             }
         }
     }
@@ -1112,19 +1112,38 @@ function initSidebar() {
             if (groupsSection) {
                 groupsSection.classList.toggle('collapsed');
                 DOM.collapseGroupsBtn.classList.toggle('collapsed');
-
-                // Сохраняем состояние
                 localStorage.setItem('groups_list_collapsed', groupsSection.classList.contains('collapsed'));
             }
         });
 
-        // Загружаем сохранённое состояние
         const groupsCollapsed = localStorage.getItem('groups_list_collapsed') === 'true';
         if (groupsCollapsed) {
             const groupsSection = document.querySelector('.groups-section');
             if (groupsSection) {
                 groupsSection.classList.add('collapsed');
                 DOM.collapseGroupsBtn.classList.add('collapsed');
+            }
+        }
+    }
+
+    // 👤 Кнопка сворачивания списка всех пользователей
+    const collapseAllUsersBtn = document.getElementById('collapseAllUsersBtn');
+    if (collapseAllUsersBtn) {
+        collapseAllUsersBtn.addEventListener('click', () => {
+            const allUsersSection = document.querySelector('.all-users-section');
+            if (allUsersSection) {
+                allUsersSection.classList.toggle('collapsed');
+                collapseAllUsersBtn.classList.toggle('collapsed');
+                localStorage.setItem('all_users_collapsed', allUsersSection.classList.contains('collapsed'));
+            }
+        });
+
+        const allUsersCollapsed = localStorage.getItem('all_users_collapsed') === 'true';
+        if (allUsersCollapsed) {
+            const allUsersSection = document.querySelector('.all-users-section');
+            if (allUsersSection) {
+                allUsersSection.classList.add('collapsed');
+                collapseAllUsersBtn.classList.add('collapsed');
             }
         }
     }
@@ -1421,7 +1440,7 @@ function updateUsersList(serverUsers) {
 
         users.sort((a, b) => (b.isPinned ? 1 : 0) - (a.isPinned ? 1 : 0));
         saveUsersToStorage();
-        renderUsers();
+        renderAll();
 
         // Обновляем статус в заголовке если чат открыт
         if (selectedUser) {
@@ -1446,7 +1465,7 @@ function updateUserStatus(username, status, activeChat = null) {
             user.activeChat = activeChat;
         }
         saveUsersToStorage();
-        renderUsers();
+        renderAll();
 
         // Обновляем статус в заголовке если это текущий выбранный пользователь
         if (selectedUser === username) {
@@ -1462,7 +1481,7 @@ function updateUserStatus(username, status, activeChat = null) {
                 }
             });
             saveUsersToStorage();
-            renderUsers();
+            renderAll();
         }
     }
 }
@@ -1477,7 +1496,7 @@ function updateUserVisibility(username, isVisible) {
     if (user) {
         user.isVisibleInDirectory = isVisible;
         saveUsersToStorage();
-        renderUsers();
+        renderAll();
     }
 }
 
@@ -1513,91 +1532,135 @@ function getLastMessageEmoji(username) {
 }
 
 /**
- * Рендеринг списка пользователей (объединённый с активными чатами)
- * Безопасная вставка данных с использованием textContent
+ * Рендеринг активных чатов (с аватарками)
  */
-function renderUsers() {
-    if (!DOM.usersList) return;
+function renderActiveChats() {
+    if (!DOM.activeChatsList) return;
 
-    DOM.usersList.innerHTML = '';
+    DOM.activeChatsList.innerHTML = '';
     const searchQuery = DOM.searchBox ? DOM.searchBox.value.toLowerCase().trim() : '';
     const fragment = document.createDocumentFragment();
 
-    // ✨ Сортируем: сначала активные чаты (с кем идёт переписка), потом остальные
-    const sortedUsers = [...users].sort((a, b) => {
-        if (a.name === currentUser) return 0;
-        if (b.name === currentUser) return 0;
-        
-        const aIsActive = a.activeChat === currentUser;
-        const bIsActive = b.activeChat === currentUser;
-        
-        if (aIsActive && !bIsActive) return -1;
-        if (!aIsActive && bIsActive) return 1;
-        
-        // Внутри активных сортируем по статусу (онлайн primero)
-        if (aIsActive && bIsActive) {
-            if (a.status === 'online' && b.status !== 'online') return -1;
-            if (a.status !== 'online' && b.status === 'online') return 1;
-        }
-        
-        return 0;
+    // Активные чаты - пользователи с activeChat === currentUser
+    const activeChats = users.filter(u => 
+        u.name !== currentUser && u.activeChat === currentUser
+    );
+
+    if (activeChats.length === 0) {
+        DOM.activeChatsList.style.display = 'none';
+        return;
+    }
+
+    DOM.activeChatsList.style.display = 'block';
+
+    activeChats.forEach(userObj => {
+        const item = document.createElement('div');
+        item.className = 'chat-item' + (selectedUser === userObj.name ? ' selected' : '');
+        item.dataset.username = userObj.name;
+
+        // Аватарка
+        const avatarEl = document.createElement('div');
+        avatarEl.className = 'chat-avatar';
+        const avatarImg = document.createElement('img');
+        avatarImg.src = getUserAvatar(userObj.name);
+        avatarImg.alt = userObj.name.charAt(0).toUpperCase();
+        avatarImg.onerror = function() {
+            this.style.display = 'none';
+            avatarEl.textContent = userObj.name.charAt(0).toUpperCase();
+            avatarEl.classList.add('avatar-placeholder');
+        };
+        avatarEl.appendChild(avatarImg);
+
+        // Индикатор статуса
+        const statusDot = document.createElement('span');
+        statusDot.className = 'status-dot ' + (userObj.status === 'online' ? 'online' : 'offline');
+
+        // Имя
+        const nameEl = document.createElement('span');
+        nameEl.className = 'chat-name';
+        nameEl.textContent = userObj.name;
+        nameEl.title = 'Клик: выбрать пользователя | Двойной клик: открыть профиль';
+
+        // Смайлик последнего сообщения
+        const messageEmoji = getLastMessageEmoji(userObj.name);
+        const emojiEl = document.createElement('span');
+        emojiEl.className = 'last-message-emoji';
+        emojiEl.textContent = messageEmoji;
+        emojiEl.title = 'Последнее сообщение';
+
+        item.appendChild(avatarEl);
+        item.appendChild(statusDot);
+        item.appendChild(nameEl);
+        item.appendChild(emojiEl);
+
+        // Клик для выбора пользователя
+        item.addEventListener('click', () => {
+            selectUser(userObj.name);
+        });
+
+        // Двойной клик для открытия профиля
+        item.addEventListener('dblclick', (e) => {
+            e.stopPropagation();
+            openProfile(userObj.name);
+        });
+
+        fragment.appendChild(item);
     });
 
-    sortedUsers.forEach(userObj => {
+    DOM.activeChatsList.appendChild(fragment);
+}
+
+/**
+ * Рендеринг всех пользователей (с аватарками)
+ */
+function renderAllUsers() {
+    if (!DOM.allUsersList) return;
+
+    DOM.allUsersList.innerHTML = '';
+    const searchQuery = DOM.searchBox ? DOM.searchBox.value.toLowerCase().trim() : '';
+    const fragment = document.createDocumentFragment();
+
+    users.forEach(userObj => {
         if (userObj.name === currentUser) return;
 
-        // Показываем только пользователей с visibility: true или точное совпадение
+        // 🔒 Показываем только пользователей с isVisibleInDirectory === true
+        // ИЛИ если это точное совпадение поиска (чтобы можно было найти себя)
         const isExactMatch = searchQuery === userObj.name.toLowerCase();
-        if (!userObj.isVisibleInDirectory && !isExactMatch && !userVisibilityCache.get(userObj.name)) {
+        
+        // Проверяем разрешение пользователя на отображение в списке
+        if (!userObj.isVisibleInDirectory && !isExactMatch) {
             return;
         }
 
         const item = document.createElement('div');
-        
-        // ✨ Добавляем класс active-chat-item если это активный чат
-        const isActiveChat = userObj.activeChat === currentUser;
-        item.className = 'user-item' + (selectedUser === userObj.name ? ' selected' : '') + (isActiveChat ? ' active-chat' : '');
+        item.className = 'user-item' + (selectedUser === userObj.name ? ' selected' : '');
         item.dataset.username = userObj.name;
 
-        // Определяем класс статуса (для CSS)
-        let statusClass = 'offline';
-        if (selectedUser === userObj.name) {
-            if (userObj.status === 'online') {
-                statusClass = 'online';
-            } else if (userObj.status === 'in_chat') {
-                statusClass = 'in-chat';
-            }
-        }
+        // Аватарка
+        const avatarEl = document.createElement('div');
+        avatarEl.className = 'user-avatar';
+        const avatarImg = document.createElement('img');
+        avatarImg.src = getUserAvatar(userObj.name);
+        avatarImg.alt = userObj.name.charAt(0).toUpperCase();
+        avatarImg.onerror = function() {
+            this.style.display = 'none';
+            avatarEl.textContent = userObj.name.charAt(0).toUpperCase();
+            avatarEl.classList.add('avatar-placeholder');
+        };
+        avatarEl.appendChild(avatarImg);
 
-        item.classList.add(statusClass);
+        // Индикатор статуса
+        const statusDot = document.createElement('span');
+        statusDot.className = 'status-dot ' + (userObj.status === 'online' ? 'online' : 'offline');
 
-        // Получаем смайлик последнего сообщения вместо индикатора статуса
-        const messageEmoji = getLastMessageEmoji(userObj.name);
-
-        // Создаём элементы безопасно (без innerHTML для пользовательских данных)
-        const statusEl = document.createElement('span');
-        statusEl.className = 'status';
-        statusEl.textContent = messageEmoji; // Смайлик сообщения вместо статуса
-        statusEl.setAttribute('aria-hidden', 'true');
-        statusEl.title = 'Последнее сообщение';
-
+        // Имя
         const nameEl = document.createElement('span');
-        nameEl.className = 'name';
-        nameEl.textContent = userObj.name; // Безопасная вставка через textContent
-        nameEl.style.cursor = 'pointer';
+        nameEl.className = 'user-name';
+        nameEl.textContent = userObj.name;
         nameEl.title = 'Клик: выбрать пользователя | Двойной клик: открыть профиль';
 
-        // ✨ Добавляем индикатор активного чата
-        if (isActiveChat) {
-            const activeIndicator = document.createElement('span');
-            activeIndicator.className = 'active-chat-indicator';
-            activeIndicator.textContent = '💬';
-            activeIndicator.setAttribute('aria-hidden', 'true');
-            activeIndicator.title = 'Активный чат';
-            item.insertBefore(activeIndicator, statusEl);
-        }
-
-        item.appendChild(statusEl);
+        item.appendChild(avatarEl);
+        item.appendChild(statusDot);
         item.appendChild(nameEl);
 
         // Клик для выбора пользователя
@@ -1614,7 +1677,30 @@ function renderUsers() {
         fragment.appendChild(item);
     });
 
-    DOM.usersList.appendChild(fragment);
+    DOM.allUsersList.appendChild(fragment);
+}
+
+/**
+ * Рендеринг всех списков
+ */
+function renderAll() {
+    renderActiveChats();
+    renderGroups();
+    renderAllUsers();
+}
+
+/**
+ * Получить аватарку пользователя
+ * @param {string} username - Имя пользователя
+ * @returns {string} - URL аватарки или заглушка
+ */
+function getUserAvatar(username) {
+    try {
+        const profile = JSON.parse(localStorage.getItem(`profile_${username}`) || '{}');
+        if (profile.avatarUrl) return profile.avatarUrl;
+    } catch (e) {}
+    // Заглушка - цветной фон с первой буквой
+    return '';
 }
 
 /**
@@ -1624,9 +1710,9 @@ function renderUsers() {
 function addChatToActive(username) {
     const user = users.find(u => u.name === username);
     if (user) {
-        user.activeChat = currentUser; // Показываем, что чат активен с текущим пользователем
+        user.activeChat = currentUser; // Показываем, что чат активен с ��екущим пользователем
         saveUsersToStorage();
-        renderUsers(); // Перерисовываем и активных чаты, и список пользователей
+        renderAll(); // Перерисовываем и активных чаты, и список пользователей
     }
 }
 
@@ -1719,16 +1805,29 @@ function markMessagesAsRead(username) {
  * @param {string|null} username - Имя пользователя или null
  */
 function updateUserItemSelection(username) {
-    const items = DOM.usersList?.querySelectorAll('.user-item');
-    if (!items) return;
-    
-    items.forEach(item => {
-        if (username) {
-            item.classList.toggle('selected', item.dataset.username === username);
-        } else {
-            item.classList.remove('selected');
-        }
-    });
+    // Обновляем выделение в активных чатах
+    const activeChatItems = DOM.activeChatsList?.querySelectorAll('.chat-item');
+    if (activeChatItems) {
+        activeChatItems.forEach(item => {
+            if (username) {
+                item.classList.toggle('selected', item.dataset.username === username);
+            } else {
+                item.classList.remove('selected');
+            }
+        });
+    }
+
+    // Обновляем выделение во всех пользователях
+    const allUserItems = DOM.allUsersList?.querySelectorAll('.user-item');
+    if (allUserItems) {
+        allUserItems.forEach(item => {
+            if (username) {
+                item.classList.toggle('selected', item.dataset.username === username);
+            } else {
+                item.classList.remove('selected');
+            }
+        });
+    }
 }
 
 /**
@@ -1776,18 +1875,21 @@ function updateChatUserStatus(username) {
  * @param {string} username - Имя пользователя
  */
 function selectUser(username) {
+    console.log('🔵 selectUser called with:', username);
+    
     if (!username) {
         console.warn('⚠️ selectUser: empty username');
         return;
     }
-    
+
     // Не открываем чат с самим собой
     if (username === currentUser) {
         console.warn('⚠️ Cannot open chat with yourself');
         return;
     }
-    
+
     selectedUser = username;
+    console.log('🔵 selectedUser set to:', selectedUser);
 
     if (DOM.chatTitle) {
         // Обновляем заголовок чата со значками
@@ -1803,7 +1905,7 @@ function selectUser(username) {
 
     // ✨ Помечаем сообщения как прочитанные
     markMessagesAsRead(username);
-    
+
     // ✨ Сбрасываем ответ на сообщение при смене чата
     if (replyToMessage) {
         replyToMessage = null;
@@ -1813,8 +1915,11 @@ function selectUser(username) {
 
     if (DOM.messagesList) {
         DOM.messagesList.innerHTML = '';
+        console.log('🔵 messagesList cleared');
 
         const messages = loadMessagesFromStorage(username);
+        console.log('🔵 Loaded messages:', messages?.length || 0);
+        
         if (messages && messages.length > 0) {
             const fragment = document.createDocumentFragment();
             messages.forEach(msg => {
@@ -1836,10 +1941,13 @@ function selectUser(username) {
             });
             DOM.messagesList.appendChild(fragment);
             DOM.messagesList.scrollTop = DOM.messagesList.scrollHeight;
+            console.log('🔵 Messages rendered');
         }
     }
 
     setInputPanelVisible(true);
+    console.log('🔵 Input panel shown');
+    
     // Обновляем статус собеседника (не текущего пользователя!)
     updateChatUserStatus(username);
     checkMobileView();
@@ -1853,6 +1961,7 @@ function selectUser(username) {
     sendToServer({ type: 'chat_open', chatWith: username });
 
     setTimeout(() => { if (DOM.messageBox) DOM.messageBox.focus(); }, 100);
+    console.log('🔵 selectUser completed');
 }
 
 /**
@@ -1888,7 +1997,7 @@ function togglePin(username) {
         userObj.isPinned = !userObj.isPinned;
         users.sort((a, b) => (b.isPinned ? 1 : 0) - (a.isPinned ? 1 : 0));
         saveUsersToStorage();
-        renderUsers();
+        renderAll();
     }
 }
 
@@ -1912,7 +2021,7 @@ function deleteChat(username, itemElement) {
         if (user) {
             user.activeChat = null;
             saveUsersToStorage();
-            renderUsers();
+            renderAll();
         }
         
         sendToServer({ type: 'delete_chat', chatName: username });
@@ -2368,7 +2477,7 @@ function searchUsers() {
 
     const query = DOM.searchBox.value.toLowerCase().trim();
     if (!query) {
-        renderUsers();
+        renderAll();
         return;
     }
 
@@ -2544,7 +2653,7 @@ function getUserFolder(username) {
 function setUserFolder(username, folder) {
     try {
         localStorage.setItem(`chat_folder_${username}`, folder);
-        renderUsers();
+        renderAll();
     } catch (e) {
         console.error('❌ Save folder error:', e);
     }
@@ -3404,7 +3513,7 @@ function addReaction(messageData, messageEl, emoji) {
         privateTo: selectedUser || null
     });
 
-    // Обновляем отображение
+    // Обновляем отображ��ние
     updateMessageReactions(messageEl, allReactions);
 
     // Сохраняем в localStorage
@@ -5558,11 +5667,24 @@ function updateTwoFactorUI() {
 
 // Обработка ответов сервера для 2FA
 function handleTwoFAMessage(data) {
+    console.log('🔐 2FA message received:', data.type, data);
+    
     switch (data.type) {
         case '2fa_setup_response':
             twoFactorState.secret = data.secret;
-            document.getElementById('twoFactorQR').src = data.qrCodeUrl;
-            document.getElementById('twoFactorSecret').textContent = data.secret;
+            const qrEl = document.getElementById('twoFactorQR');
+            const secretEl = document.getElementById('twoFactorSecret');
+            
+            if (qrEl && data.qrCodeUrl) {
+                qrEl.src = data.qrCodeUrl;
+                console.log('🔐 QR code URL set:', data.qrCodeUrl);
+            }
+            
+            if (secretEl && data.secret) {
+                secretEl.textContent = data.secret;
+                console.log('🔐 Secret set:', data.secret);
+            }
+            
             showTwoFactorStep(1);
             break;
 
@@ -5591,7 +5713,7 @@ function handleTwoFAMessage(data) {
             showTwoFactorMessage('2FA отключён', false);
             updateTwoFactorUI();
             setTimeout(() => {
-                document.getElementById('twoFactorModal').classList.add('hidden');
+                document.getElementById('twoFactorModal')?.classList.add('hidden');
             }, 1000);
             break;
 
