@@ -541,7 +541,7 @@ function connectToServer(authMessage) {
         socket = new WebSocket(WS_URL);
 
         socket.onopen = () => {
-            console.log('✅ Connected');
+            console.log('✅ Connected to', WS_URL);
             reconnectAttempts = 0;
             if (authMessage) socket.send(JSON.stringify(authMessage));
         };
@@ -560,12 +560,13 @@ function connectToServer(authMessage) {
             }
         };
 
-        socket.onerror = () => {
-            console.warn('⚠️ WebSocket error');
+        socket.onerror = (error) => {
+            console.error('❌ WebSocket error:', error);
+            console.log('💡 Проверь: 1) сервер запущен 2) порт 3) CORS 4) wss/ssl');
         };
 
         socket.onclose = (event) => {
-            console.log('🔌 Disconnected:', event.code);
+            console.log('🔌 Disconnected:', event.code, event.reason || '');
 
             if (currentUser && event.code !== 1000 && event.code !== 1001) {
                 reconnectAttempts++;
@@ -5231,7 +5232,7 @@ function clearChatStorage(username) {
 }
 
 // ============================================================================
-// 🔹 Настройки (тема, шрифт, цвет)
+// 🔹 На��тройки (тема, шрифт, цвет)
 // ============================================================================
 function loadSettings() {
     try {
