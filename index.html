@@ -78,43 +78,72 @@
                     <span class="toggle-icon" aria-hidden="true">◀</span>
                 </button>
 
-                <!-- 1. Профиль пользователя (закреплен сверху) -->
-                <header class="sidebar-profile">
-                    <div class="current-user">
-                        <span class="user-icon" aria-hidden="true">👤</span>
-                        <span class="user-label" id="currentUserLabel">Пользователь</span>
-                    </div>
-                    <div class="profile-actions">
-                        <button id="settingsBtn" class="settings-btn" type="button" title="Настройки" aria-label="Настройки">⚙️</button>
-                        <button id="profileBtn" class="profile-btn" type="button" title="Профиль" aria-label="Открыть профиль">👤</button>
-                    </div>
-                </header>
+                <!-- 🔝 ОСНОВНАЯ ОБЛАСТЬ (над нижней зоной) -->
+                <div class="sidebar-main-content">
+                    <!-- 1. Профиль пользователя (закреплен сверху) -->
+                    <header class="sidebar-profile">
+                        <div class="current-user">
+                            <span class="user-icon" aria-hidden="true">👤</span>
+                            <span class="user-label" id="currentUserLabel">Пользователь</span>
+                        </div>
+                        <div class="profile-actions">
+                            <button id="settingsBtn" class="settings-btn" type="button" title="Настройки" aria-label="Настройки">⚙️</button>
+                            <button id="profileBtn" class="profile-btn" type="button" title="Профиль" aria-label="Открыть профиль">👤</button>
+                        </div>
+                    </header>
 
-                <!-- 2. Поиск -->
-                <div class="search-container">
-                    <div class="search-box">
-                        <input type="text" id="searchBox" placeholder="🔍 Поиск чатов..." aria-label="Поиск чатов" autocomplete="off">
+                    <!-- 2. Поиск -->
+                    <div class="search-container">
+                        <div class="search-box">
+                            <span class="search-icon" aria-hidden="true">🔍</span>
+                            <input type="text" id="searchBox" placeholder="Поиск пользователей или чатов" aria-label="Поиск чатов" autocomplete="off">
+                            <button class="search-clear-btn hidden" id="searchClearBtn" type="button" aria-label="Очистить поиск">&times;</button>
+                        </div>
+                    </div>
+
+                    <!-- 3. Контейнер для результатов поиска (глобальный каталог) -->
+                    <div class="search-results-container hidden" id="searchResultsContainer" role="list" aria-label="Результаты поиска" aria-live="polite">
+                        <div class="search-results-header">
+                            <span class="section-title">🌐 Пользователи</span>
+                        </div>
+                        <div class="search-results-list" id="searchResultsList"></div>
+                    </div>
+
+                    <!-- 4. Список активных чатов (скрывается при фокусе на поиске) -->
+                    <div class="chats-container" id="chatsContainer">
+                        <!-- Общий список чатов и групп -->
+                        <div class="chats-section">
+                            <div class="section-header chats-header">
+                                <span class="section-title">💬 Чаты и группы</span>
+                                <button class="create-chat-btn" id="createGroupBtn" type="button" title="Создать группу" aria-label="Создать группу">
+                                    <span aria-hidden="true">+</span>
+                                </button>
+                            </div>
+                            <div class="chats-list" id="chatsList" role="list" aria-label="Список чатов"></div>
+                        </div>
                     </div>
                 </div>
 
-                <!-- 3. Общий список чатов (активные + все пользователи) -->
-                <div class="chats-section">
-                    <div class="section-header chats-header">
-                        <span class="section-title">💬 Чаты</span>
+                <!-- 🔽 НИЖНЯЯ ЗАКРЕПЛЁННАЯ ЗОНА -->
+                <footer class="sidebar-footer" id="sidebarFooter">
+                    <div class="current-user-card">
+                        <div class="user-avatar-small" id="footerUserAvatar" aria-hidden="true">
+                            <span class="avatar-initials" id="footerUserInitials">U</span>
+                        </div>
+                        <div class="user-info">
+                            <span class="user-name" id="footerUserName">Пользователь</span>
+                            <span class="user-status-text" id="footerUserStatus">Онлайн</span>
+                        </div>
                     </div>
-                    <div class="chats-list" id="chatsList" role="list" aria-label="Список чатов"></div>
-                </div>
-
-                <!-- 4. Группы -->
-                <div class="groups-section">
-                    <div class="section-header groups-section-header">
-                        <span class="section-title">👥 Группы</span>
-                        <button class="collapse-section-btn" id="collapseGroupsBtn" type="button" title="Свернуть/Развернуть" aria-label="Свернуть список групп">
-                            <span class="collapse-icon">▼</span>
+                    <div class="footer-actions">
+                        <button id="footerSettingsBtn" class="footer-action-btn" type="button" title="Настройки" aria-label="Настройки">
+                            <span aria-hidden="true">⚙️</span>
+                        </button>
+                        <button id="footerProfileBtn" class="footer-action-btn" type="button" title="Профиль" aria-label="Открыть профиль">
+                            <span aria-hidden="true">👤</span>
                         </button>
                     </div>
-                    <div class="groups-list" id="groupsList" role="list" aria-label="Список групп"></div>
-                </div>
+                </footer>
             </aside>
 
             <!-- Правая панель (основная область чата) -->
@@ -585,5 +614,8 @@
             </div>
         </div>
     </div>
+
+    <!-- 🔹 Компонент боковой панели -->
+    <script src="sidebar-component.js"></script>
 </body>
 </html>

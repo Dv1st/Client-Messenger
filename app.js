@@ -1190,6 +1190,51 @@ function initSidebar() {
     initUserListEvents();
 
     checkMobileView();
+
+    // ========================================================================
+    // 🔹 Инициализация SidebarComponent
+    // ========================================================================
+    window.sidebarComponent = new SidebarComponent({
+        currentUser: currentUser ? {
+            id: 'current',
+            username: currentUser,
+            displayName: currentUser,
+            avatar: null,
+            status: 'online'
+        } : null,
+
+        // Callbacks
+        onChatSelect: (chat) => {
+            console.log('Chat selected:', chat);
+            // Здесь можно добавить логику выбора чата
+            if (chat.type === 'personal') {
+                // selectUser(chat.userId);
+            }
+        },
+
+        onUserStartChat: (user) => {
+            console.log('Start chat with user:', user);
+            // Логика начала чата с новым пользователем
+            // Например, создать новый чат и открыть его
+        },
+
+        onSettingsClick: () => {
+            if (DOM.settingsModal) {
+                DOM.settingsModal.classList.remove('hidden');
+            }
+        },
+
+        onProfileClick: () => {
+            if (DOM.profileModal) {
+                DOM.profileModal.classList.remove('hidden');
+                loadUserProfile();
+            }
+        },
+
+        onCreateGroup: () => {
+            openCreateGroupModal();
+        }
+    });
 }
 
 /**
@@ -5231,7 +5276,7 @@ function decryptMessage() {
 
     const decrypted = xorDecrypt(encryptedText, key);
 
-    // Проверяем правильность ключа по подсказке
+    // Проверяем правильность ключа по подск��зке
     const expectedHint = generateHint(key);
     if (hint && expectedHint !== hint) {
         alert('⚠️ Неверный ключ! ��одсказка: ' + hint);
