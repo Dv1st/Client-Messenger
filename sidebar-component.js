@@ -51,7 +51,7 @@ class SidebarComponent {
             footerUserInitials: null,
             footerUserAvatar: null,
             footerSettingsBtn: null,
-            footerProfileBtn: null,
+            footerProfileCard: null,
             createGroupBtn: null
         };
 
@@ -104,7 +104,7 @@ class SidebarComponent {
         this.dom.footerUserInitials = document.getElementById('footerUserInitials');
         this.dom.footerUserAvatar = document.getElementById('footerUserAvatar');
         this.dom.footerSettingsBtn = document.getElementById('footerSettingsBtn');
-        this.dom.footerProfileBtn = document.getElementById('footerProfileBtn');
+        this.dom.footerProfileCard = document.getElementById('footerProfileCard');
         this.dom.createGroupBtn = document.getElementById('createGroupBtn');
     }
 
@@ -132,9 +132,18 @@ class SidebarComponent {
             });
         }
 
-        if (this.dom.footerProfileBtn) {
-            this.dom.footerProfileBtn.addEventListener('click', () => {
+        // 🔹 Клик по карточке пользователя для открытия профиля
+        if (this.dom.footerProfileCard) {
+            this.dom.footerProfileCard.addEventListener('click', () => {
                 this.callbacks.onProfileClick?.();
+            });
+            
+            // Поддержка клавиши Enter
+            this.dom.footerProfileCard.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    this.callbacks.onProfileClick?.();
+                }
             });
         }
 
@@ -209,7 +218,7 @@ class SidebarComponent {
 
         // Получаем реальные данные из app.js если они есть
         let chats = this.state.chats;
-        
+
         // Если есть глобальные данные (из app.js), используем их
         if (typeof window.renderChatsListData === 'function') {
             chats = window.renderChatsListData();
@@ -219,6 +228,12 @@ class SidebarComponent {
         const sortedChats = [...chats].sort((a, b) => b.timestamp - a.timestamp);
 
         this.dom.chatsList.innerHTML = sortedChats.map(chat => this.renderChatItem(chat)).join('');
+        
+        // 🔹 Обновляем результаты поиска (чтобы обновить кнопки "Начать чат" / "Перейти в чат")
+        if (this.state.isSearchFocused && this.dom.searchBox) {
+            const query = this.dom.searchBox.value.trim().toLowerCase();
+            this.handleSearchInput({ target: { value: query } });
+        }
     }
 
     /**
@@ -299,10 +314,17 @@ class SidebarComponent {
     renderSearchResultItem(user) {
         const isOnline = user.status === 'online';
         const avatarInitials = this.getInitials(user.displayName || user.username);
+        
+        // 🔹 Проверяем, есть ли уже чат с этим пользователем
+        const hasExistingChat = this.hasChatWithUser(user.username || user.id);
+        const buttonText = hasExistingChat ? 'Перейти в чат' : 'Начать чат';
+        const buttonAriaLabel = hasExistingChat 
+            ? `Перейти в чат с ${escapeHtml(user.displayName || user.username)}`
+            : `Начать чат с ${escapeHtml(user.displayName || user.username)}`;
 
         return `
-            <div class="search-result-item" 
-                 data-user-id="${escapeHtml(user.id)}" 
+            <div class="search-result-item"
+                 data-user-id="${escapeHtml(user.id)}"
                  data-username="${escapeHtml(user.username)}"
                  role="listitem"
                  tabindex="0">
@@ -316,11 +338,33 @@ class SidebarComponent {
                         ${isOnline ? 'Онлайн' : 'Офлайн'}
                     </div>
                 </div>
-                <button class="search-result-action-btn" type="button" aria-label="Начать чат с ${escapeHtml(user.displayName || user.username)}">
-                    Начать чат
+                <button class="search-result-action-btn ${hasExistingChat ? 'existing-chat' : ''}" type="button" aria-label="${buttonAriaLabel}">
+                    ${buttonText}
                 </button>
             </div>
         `;
+    }
+
+    /**
+     * Проверка, есть ли уже чат с пользователем
+     * @param {string} username - Имя пользователя
+     * @returns {boolean} - Есть ли уже чат
+     */
+    hasChatWithUser(username) {
+        if (!username) return false;
+        
+        // Проверяем через глобальную функцию из app.js
+        if (typeof window.hasChatWithUser === 'function') {
+            return window.hasChatWithUser(username);
+        }
+        
+        // Резервная проверка: ищем в localStorage сообщения
+        const currentUser = typeof window.currentUser !== 'undefined' ? window.currentUser : null;
+        if (!currentUser) return false;
+        
+        const key = `chat_messages_${currentUser}_${username}`;
+        const saved = localStorage.getItem(key);
+        return saved !== null;
     }
 
     // ============================================================================
@@ -431,6 +475,9 @@ class SidebarComponent {
 
         this.state.selectedChatId = chatId;
 
+        // 🔹 Скрываем поиск и показываем список чатов
+        this.hideSearch();
+
         // Обновляем выделение
         this.renderChatsList();
 
@@ -456,6 +503,8 @@ class SidebarComponent {
             const username = resultItem?.dataset.username;
 
             if (userId) {
+                // 🔹 Скрываем поиск перед открытием чата
+                this.hideSearch();
                 this.callbacks.onUserStartChat?.({ id: userId, username });
             }
         } else if (resultItem) {
@@ -464,6 +513,8 @@ class SidebarComponent {
             const username = resultItem.dataset.username;
 
             if (userId) {
+                // 🔹 Скрываем поиск перед открытием чата
+                this.hideSearch();
                 this.callbacks.onUserStartChat?.({ id: userId, username });
             }
         }
@@ -488,6 +539,37 @@ class SidebarComponent {
 
         if (this.dom.searchClearBtn) {
             this.dom.searchClearBtn.classList.add('hidden');
+        }
+    }
+
+    /**
+     * 🔹 Скрыть поиск и показать список чатов
+     * Вызывается при выборе чата
+     */
+    hideSearch() {
+        this.state.isSearchFocused = false;
+        this.state.searchQuery = '';
+        
+        if (this.dom.searchBox) {
+            this.dom.searchBox.value = '';
+        }
+
+        // Показываем список чатов, скрываем результаты поиска
+        if (this.dom.chatsContainer) {
+            this.dom.chatsContainer.classList.remove('hidden');
+        }
+
+        if (this.dom.searchResultsContainer) {
+            this.dom.searchResultsContainer.classList.add('hidden');
+        }
+
+        if (this.dom.searchClearBtn) {
+            this.dom.searchClearBtn.classList.add('hidden');
+        }
+
+        // Снимаем фокус с поля поиска
+        if (this.dom.searchBox) {
+            this.dom.searchBox.blur();
         }
     }
 

@@ -116,7 +116,6 @@ const DOM = {
 
     // 👤 Профиль
     profileModal: null,
-    footerProfileBtn: null,
     editProfileBtn: null,
     closeProfile: null,
     profileAvatar: null,
@@ -154,7 +153,7 @@ function initDOM() {
         // 📎 Элементы для работы с файлами
         'attachFileBtn', 'fileInput', 'filePreviewContainer',
         // 👤 Элементы профиля
-        'profileModal', 'footerProfileBtn', 'editProfileBtn', 'closeProfile', 'profileAvatar',
+        'profileModal', 'editProfileBtn', 'closeProfile', 'profileAvatar',
         'profileUserName', 'profileUserStatus', 'avatarContainer', 'avatarFileInput',
         'badgesGrid', 'editPanel', 'saveProfileBtn', 'cancelProfileBtn', 'avatarUrlInput',
         'applyAvatarUrlBtn', 'badgeVisibilityList', 'profileActionsSection', 'sendMessageBtn',
@@ -1397,11 +1396,20 @@ function initSidebar() {
         },
 
         onUserStartChat: (user) => {
-            // Логика начала чата с новым пользователем
-            if (user.id) {
-                // Создаём новый чат если не существует
-                addChatToActive(user.username || user.id);
-                selectUser(user.username || user.id);
+            // 🔹 Логика начала чата с новым пользователем
+            const username = user.username || user.id;
+            if (username) {
+                // Проверяем, есть ли уже чат с этим пользователем
+                if (window.hasChatWithUser(username)) {
+                    // Чат уже существует - просто открываем его
+                    console.log('✅ Чат уже существует, открываем:', username);
+                } else {
+                    // Чата нет - создаём новый
+                    console.log('✅ Создаём новый чат:', username);
+                    addChatToActive(username);
+                }
+                // Открываем чат с пользователем
+                selectUser(username);
             }
         },
 
@@ -1661,7 +1669,7 @@ function updateUsersList(serverUsers) {
                 const serverUser = serverUsers.find(u => (u.username || u.name) === user.name);
                 if (serverUser) {
                     user.status = serverUser.status || (serverUser.online ? 'online' : 'offline');
-                    // ✨ Не перезаписываем activeChat с сервера, сохраняем локальный
+                    // ✨ Не перезаписываем activeChat с сервера, сохраняем локальн����й
                     user.activeChat = localActiveChats.get(user.name) || serverUser.activeChat || null;
                     user.isVisibleInDirectory = serverUser.isVisibleInDirectory !== false;
                     user.allowGroupInvite = serverUser.allowGroupInvite || false; // 👥
@@ -2072,6 +2080,27 @@ function addChatToActive(username) {
         renderAll(); // Перерисовываем и активных чаты, и список пользователей
     }
 }
+
+/**
+ * 🔹 Проверка, есть ли уже чат с пользователем
+ * @param {string} username - Имя пользователя
+ * @returns {boolean} - Есть ли уже чат (переписка)
+ */
+window.hasChatWithUser = function(username) {
+    if (!username) return false;
+    
+    const key = `chat_messages_${currentUser}_${username}`;
+    const saved = localStorage.getItem(key);
+    
+    if (!saved) return false;
+    
+    try {
+        const messages = JSON.parse(saved);
+        return messages && messages.length > 0;
+    } catch (e) {
+        return false;
+    }
+};
 
 /**
  * ✨ Получить количество непрочитанных сообщений от пользователя
@@ -4461,10 +4490,8 @@ function initProfile() {
     loadUserProfile();
 
     // Обработчики событий
-    if (DOM.footerProfileBtn) {
-        DOM.footerProfileBtn.addEventListener('click', () => openProfile(currentUser));
-    }
-    
+    // 🔹 Обработчик перемещён в sidebar-component.js (клик по карточке пользователя)
+
     if (DOM.closeProfile) {
         DOM.closeProfile.addEventListener('click', closeProfile);
     }

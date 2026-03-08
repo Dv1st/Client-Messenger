@@ -122,7 +122,7 @@
 
                 <!-- 🔽 НИЖНЯЯ ЗАКРЕПЛЁННАЯ ЗОНА -->
                 <footer class="sidebar-footer" id="sidebarFooter">
-                    <div class="current-user-card">
+                    <div class="current-user-card" id="footerProfileCard" role="button" tabindex="0" aria-label="Открыть профиль">
                         <div class="user-avatar-small" id="footerUserAvatar" aria-hidden="true">
                             <span class="avatar-initials" id="footerUserInitials">U</span>
                             <span class="status-indicator online" id="footerUserStatusIndicator" aria-label="Статус: онлайн"></span>
@@ -134,9 +134,6 @@
                     <div class="footer-actions">
                         <button id="footerSettingsBtn" class="footer-action-btn" type="button" title="Настройки" aria-label="Настройки">
                             <span aria-hidden="true">⚙️</span>
-                        </button>
-                        <button id="footerProfileBtn" class="footer-action-btn" type="button" title="Профиль" aria-label="Открыть профиль">
-                            <span aria-hidden="true">👤</span>
                         </button>
                     </div>
                 </footer>
@@ -487,7 +484,15 @@
                 });
             }
 
+            const loginWindow = document.getElementById('loginWindow');
+            let animationFrameId = null;
+
             function animate() {
+                // 🔹 Останавливаем анимацию если окно входа скрыто
+                if (loginWindow && loginWindow.classList.contains('hidden')) {
+                    return; // Не продолжаем анимацию
+                }
+
                 if (animationEnabled) {
                     globalRotation += CONFIG.baseSpeed * 16;
                 }
@@ -529,7 +534,7 @@
                     circle.element.setAttribute('cy', y);
                 });
 
-                requestAnimationFrame(animate);
+                animationFrameId = requestAnimationFrame(animate);
             }
 
             animate();

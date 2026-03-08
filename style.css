@@ -700,6 +700,18 @@ body.font-large { font-size: 16px; }
     background: var(--accent-hover);
 }
 
+/* 🔹 Кнопка "Перейти в чат" (для существующих чатов) */
+.search-result-action-btn.existing-chat {
+    background: var(--element-bg);
+    border: 1px solid var(--accent);
+    color: var(--accent);
+}
+
+.search-result-action-btn.existing-chat:hover {
+    background: var(--accent);
+    color: white;
+}
+
 /* Контейнер чатов (скрывается при поиске) */
 .chats-container {
     flex: 1;
@@ -1356,10 +1368,16 @@ body.font-large { font-size: 16px; }
     padding: 6px 8px;
     border-radius: var(--border-radius-md);
     transition: background var(--transition-fast);
+    cursor: pointer;
 }
 
 .current-user-card:hover {
     background: var(--element-bg-hover);
+}
+
+.current-user-card:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
 }
 
 .user-avatar-small {
