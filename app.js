@@ -53,7 +53,7 @@ let viewedProfileUserId = null; // ID пользователя, чей проф�
 // ============================================================================
 // 🔹 Константы
 // ============================================================================
-const WS_URL = 'wss://client-messenger-production.up.railway.app';
+const WS_URL = 'https://client-messenger-production.up.railway.app';
 const DEBOUNCE_DELAY = 300;
 const MESSAGE_MAX_LENGTH = 10000;
 const MAX_MESSAGES_IN_STORAGE = 100;
