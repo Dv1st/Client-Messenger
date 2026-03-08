@@ -56,7 +56,8 @@ const ALLOWED_ORIGINS = [
     'http://localhost:3000',
     'http://localhost:5500',
     'https://dv1st.github.io',
-    'https://client-messenger-production.up.railway.app'
+    'https://client-messenger-production.up.railway.app',
+    'https://*.github.io'
 ];
 
 // 🔒 Разрешённые MIME-типы для файлов
@@ -219,9 +220,9 @@ async function deleteGroupFromDatabase(groupId) {
 // ============================================================================
 const server = http.createServer((req, res) => {
     const origin = req.headers.origin;
-    
+
     // 🔒 Проверяем origin против whitelist
-    if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    if (origin && isOriginAllowed(origin)) {
         res.setHeader('Access-Control-Allow-Origin', origin);
     } else {
         res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGINS[0]); // Fallback
@@ -260,11 +261,35 @@ const server = http.createServer((req, res) => {
 // ============================================================================
 // 🔹 WebSocket Сервер
 // ============================================================================
+
+/**
+ * Проверка разрешённого origin с поддержкой wildcard
+ * @param {string} origin - Origin для проверки
+ * @returns {boolean} - Разрешён ли origin
+ */
+function isOriginAllowed(origin) {
+    if (!origin) return false;
+    
+    for (const allowed of ALLOWED_ORIGINS) {
+        if (allowed.includes('*')) {
+            // Wildcard проверка: https://*.github.io → https://dv1st.github.io
+            const pattern = allowed.replace('.', '\\.').replace('*', '[^.]+');
+            const regex = new RegExp(`^${pattern}$`);
+            if (regex.test(origin)) {
+                return true;
+            }
+        } else if (allowed === origin) {
+            return true;
+        }
+    }
+    return false;
+}
+
 const wss = new WebSocket.Server({
     server,
     verifyClient: (info, callback) => {
         const origin = info.origin || info.req.headers.origin;
-        if (process.env.NODE_ENV === 'production' && !ALLOWED_ORIGINS.includes(origin)) {
+        if (process.env.NODE_ENV === 'production' && !isOriginAllowed(origin)) {
             console.warn(`🚫 Blocked origin: ${origin}`);
             return callback(false, 403);
         }
