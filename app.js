@@ -78,9 +78,8 @@ const DOM = {
     sidebarToggle: null,
     sidebarTrigger: null,
     searchBox: null,
-    activeChatsList: null,
+    chatsList: null,
     groupsList: null,
-    allUsersList: null,
 
     // Чат
     messagesList: null,
@@ -145,7 +144,7 @@ const DOM = {
 function initDOM() {
     const ids = [
         'loginWindow', 'chatWindow', 'settingsModal', 'sidebar', 'sidebarToggle',
-        'sidebarTrigger', 'searchBox', 'activeChatsList', 'groupsList', 'allUsersList',
+        'sidebarTrigger', 'searchBox', 'chatsList', 'groupsList',
         'messagesList', 'inputPanel', 'chatPlaceholder', 'chatTitle', 'chatUserStatus', 'backBtn',
         'scrollToBottomBtn', 'unreadCount', 'messageBox', 'sendBtn', 'encryptCheckBox',
         'encryptKeyBox', 'decryptPanel', 'decryptKeyBox', 'decryptBtn', 'themeSelect',
@@ -160,9 +159,7 @@ function initDOM() {
         'profileUserName', 'profileUserStatus', 'avatarContainer', 'avatarFileInput',
         'badgesGrid', 'editPanel', 'saveProfileBtn', 'cancelProfileBtn', 'avatarUrlInput',
         'applyAvatarUrlBtn', 'badgeVisibilityList', 'profileActionsSection', 'sendMessageBtn',
-        'profileStatusMessage',
-        // 🔽 Новые элементы sidebar
-        'collapseActiveChatsBtn', 'collapseAllUsersBtn'
+        'profileStatusMessage'
     ];
 
     ids.forEach(id => {
@@ -1532,35 +1529,49 @@ function getLastMessageEmoji(username) {
 }
 
 /**
- * Рендеринг активных чатов (с аватарками)
+ * Рендеринг общего списка чатов (с аватарками)
  */
-function renderActiveChats() {
-    if (!DOM.activeChatsList) return;
+function renderChats() {
+    if (!DOM.chatsList) return;
 
-    DOM.activeChatsList.innerHTML = '';
+    DOM.chatsList.innerHTML = '';
     const searchQuery = DOM.searchBox ? DOM.searchBox.value.toLowerCase().trim() : '';
     const fragment = document.createDocumentFragment();
 
-    // Активные чаты - пользователи с activeChat === currentUser
-    const activeChats = users.filter(u => 
-        u.name !== currentUser && u.activeChat === currentUser
-    );
+    // Сортируем: сначала активные чаты, потом остальные пользователи
+    const sortedUsers = [...users].sort((a, b) => {
+        if (a.name === currentUser) return 0;
+        if (b.name === currentUser) return 0;
 
-    if (activeChats.length === 0) {
-        DOM.activeChatsList.style.display = 'none';
-        return;
-    }
+        const aIsActive = a.activeChat === currentUser;
+        const bIsActive = b.activeChat === currentUser;
 
-    DOM.activeChatsList.style.display = 'block';
+        if (aIsActive && !bIsActive) return -1;
+        if (!aIsActive && bIsActive) return 1;
 
-    activeChats.forEach(userObj => {
+        // Внутри активных сортируем по статусу
+        if (aIsActive && bIsActive && a.status === 'online' && b.status !== 'online') return -1;
+        if (aIsActive && bIsActive && a.status !== 'online' && b.status === 'online') return 1;
+
+        return 0;
+    });
+
+    sortedUsers.forEach(userObj => {
+        if (userObj.name === currentUser) return;
+
+        // 🔒 Показываем только пользователей с isVisibleInDirectory === true
+        const isExactMatch = searchQuery === userObj.name.toLowerCase();
+        if (!userObj.isVisibleInDirectory && !isExactMatch) {
+            return;
+        }
+
         const item = document.createElement('div');
         item.className = 'chat-item' + (selectedUser === userObj.name ? ' selected' : '');
         item.dataset.username = userObj.name;
 
         // Аватарка
         const avatarEl = document.createElement('div');
-        avatarEl.className = 'chat-avatar';
+        avatarEl.className = 'chat-item-avatar';
         const avatarImg = document.createElement('img');
         avatarImg.src = getUserAvatar(userObj.name);
         avatarImg.alt = userObj.name.charAt(0).toUpperCase();
@@ -1573,95 +1584,41 @@ function renderActiveChats() {
 
         // Индикатор статуса
         const statusDot = document.createElement('span');
-        statusDot.className = 'status-dot ' + (userObj.status === 'online' ? 'online' : 'offline');
+        statusDot.className = 'chat-item-status ' + (userObj.status === 'online' ? 'online' : 'offline');
 
-        // Имя
+        // Информация
+        const infoEl = document.createElement('div');
+        infoEl.className = 'chat-item-info';
+
         const nameEl = document.createElement('span');
-        nameEl.className = 'chat-name';
+        nameEl.className = 'chat-item-name';
         nameEl.textContent = userObj.name;
         nameEl.title = 'Клик: выбрать пользователя | Двойной клик: открыть профиль';
 
-        // Смайлик последнего сообщения
-        const messageEmoji = getLastMessageEmoji(userObj.name);
-        const emojiEl = document.createElement('span');
-        emojiEl.className = 'last-message-emoji';
-        emojiEl.textContent = messageEmoji;
-        emojiEl.title = 'Последнее сообщение';
+        const lastMsgEmoji = getLastMessageEmoji(userObj.name);
+        const lastMsgEl = document.createElement('div');
+        lastMsgEl.className = 'chat-item-last-message';
+        lastMsgEl.textContent = lastMsgEmoji + ' Последнее сообщение';
 
-        item.appendChild(avatarEl);
-        item.appendChild(statusDot);
-        item.appendChild(nameEl);
-        item.appendChild(emojiEl);
+        infoEl.appendChild(nameEl);
+        infoEl.appendChild(lastMsgEl);
 
-        // Клик для выбора пользователя
-        item.addEventListener('click', () => {
-            selectUser(userObj.name);
-        });
+        // Мета (время, непрочитанные)
+        const metaEl = document.createElement('div');
+        metaEl.className = 'chat-item-meta';
 
-        // Двойной клик для открытия профиля
-        item.addEventListener('dblclick', (e) => {
-            e.stopPropagation();
-            openProfile(userObj.name);
-        });
-
-        fragment.appendChild(item);
-    });
-
-    DOM.activeChatsList.appendChild(fragment);
-}
-
-/**
- * Рендеринг всех пользователей (с аватарками)
- */
-function renderAllUsers() {
-    if (!DOM.allUsersList) return;
-
-    DOM.allUsersList.innerHTML = '';
-    const searchQuery = DOM.searchBox ? DOM.searchBox.value.toLowerCase().trim() : '';
-    const fragment = document.createDocumentFragment();
-
-    users.forEach(userObj => {
-        if (userObj.name === currentUser) return;
-
-        // 🔒 Показываем только пользователей с isVisibleInDirectory === true
-        // ИЛИ если это точное совпадение поиска (чтобы можно было найти себя)
-        const isExactMatch = searchQuery === userObj.name.toLowerCase();
-        
-        // Проверяем разрешение пользователя на отображение в списке
-        if (!userObj.isVisibleInDirectory && !isExactMatch) {
-            return;
+        const unreadCount = getUnreadMessagesCount(userObj.name);
+        if (unreadCount > 0) {
+            const unreadEl = document.createElement('span');
+            unreadEl.className = 'chat-item-unread';
+            unreadEl.textContent = unreadCount > 99 ? '99+' : unreadCount;
+            metaEl.appendChild(unreadEl);
         }
 
-        const item = document.createElement('div');
-        item.className = 'user-item' + (selectedUser === userObj.name ? ' selected' : '');
-        item.dataset.username = userObj.name;
-
-        // Аватарка
-        const avatarEl = document.createElement('div');
-        avatarEl.className = 'user-avatar';
-        const avatarImg = document.createElement('img');
-        avatarImg.src = getUserAvatar(userObj.name);
-        avatarImg.alt = userObj.name.charAt(0).toUpperCase();
-        avatarImg.onerror = function() {
-            this.style.display = 'none';
-            avatarEl.textContent = userObj.name.charAt(0).toUpperCase();
-            avatarEl.classList.add('avatar-placeholder');
-        };
-        avatarEl.appendChild(avatarImg);
-
-        // Индикатор статуса
-        const statusDot = document.createElement('span');
-        statusDot.className = 'status-dot ' + (userObj.status === 'online' ? 'online' : 'offline');
-
-        // Имя
-        const nameEl = document.createElement('span');
-        nameEl.className = 'user-name';
-        nameEl.textContent = userObj.name;
-        nameEl.title = 'Клик: выбрать пользователя | Двойной клик: открыть профиль';
-
         item.appendChild(avatarEl);
         item.appendChild(statusDot);
-        item.appendChild(nameEl);
+        item.appendChild(infoEl);
+        item.appendChild(metaEl);
 
         // Клик для выбора пользователя
         item.addEventListener('click', () => {
@@ -1677,16 +1634,15 @@ function renderAllUsers() {
         fragment.appendChild(item);
     });
 
-    DOM.allUsersList.appendChild(fragment);
+    DOM.chatsList.appendChild(fragment);
 }
 
 /**
  * Рендеринг всех списков
  */
 function renderAll() {
-    renderActiveChats();
+    renderChats();
     renderGroups();
-    renderAllUsers();
 }
 
 /**
@@ -1805,22 +1761,10 @@ function markMessagesAsRead(username) {
  * @param {string|null} username - Имя пользователя или null
  */
 function updateUserItemSelection(username) {
-    // Обновляем выделение в активных чатах
-    const activeChatItems = DOM.activeChatsList?.querySelectorAll('.chat-item');
-    if (activeChatItems) {
-        activeChatItems.forEach(item => {
-            if (username) {
-                item.classList.toggle('selected', item.dataset.username === username);
-            } else {
-                item.classList.remove('selected');
-            }
-        });
-    }
-
-    // Обновляем выделение во всех пользователях
-    const allUserItems = DOM.allUsersList?.querySelectorAll('.user-item');
-    if (allUserItems) {
-        allUserItems.forEach(item => {
+    // Обновляем выделение в общем списке чатов
+    const chatItems = DOM.chatsList?.querySelectorAll('.chat-item');
+    if (chatItems) {
+        chatItems.forEach(item => {
             if (username) {
                 item.classList.toggle('selected', item.dataset.username === username);
             } else {
@@ -1892,8 +1836,9 @@ function selectUser(username) {
     console.log('🔵 selectedUser set to:', selectedUser);
 
     if (DOM.chatTitle) {
-        // Обновляем заголовок чата со значками
+        // Обновляем заголовок чата со значками и аватаркой
         updateChatTitleWithBadges();
+        updateChatHeaderAvatar(username);
     }
 
     updateUserItemSelection(username);

@@ -78,60 +78,43 @@
                     <span class="toggle-icon" aria-hidden="true">◀</span>
                 </button>
 
-                <!-- 1. Поиск (первый элемент) -->
+                <!-- 1. Профиль пользователя (закреплен сверху) -->
+                <header class="sidebar-profile">
+                    <div class="current-user">
+                        <span class="user-icon" aria-hidden="true">👤</span>
+                        <span class="user-label" id="currentUserLabel">Пользователь</span>
+                    </div>
+                    <div class="profile-actions">
+                        <button id="settingsBtn" class="settings-btn" type="button" title="Настройки" aria-label="Настройки">⚙️</button>
+                        <button id="profileBtn" class="profile-btn" type="button" title="Профиль" aria-label="Открыть профиль">👤</button>
+                    </div>
+                </header>
+
+                <!-- 2. Поиск -->
                 <div class="search-container">
                     <div class="search-box">
                         <input type="text" id="searchBox" placeholder="🔍 Поиск чатов..." aria-label="Поиск чатов" autocomplete="off">
                     </div>
                 </div>
 
-                <!-- 2. Активные чаты (пользователи) -->
-                <div class="active-chats-section">
-                    <div class="section-header active-chats-header">
-                        <span class="section-title">💬 Активные чаты</span>
-                        <button class="collapse-section-btn" id="collapseActiveChatsBtn" type="button" title="Свернуть/Развернуть" aria-label="Свернуть список активных чатов">
-                            <span class="collapse-icon">▼</span>
-                        </button>
+                <!-- 3. Общий список чатов (активные + все пользователи) -->
+                <div class="chats-section">
+                    <div class="section-header chats-header">
+                        <span class="section-title">💬 Чаты</span>
                     </div>
-                    <div class="active-chats-list" id="activeChatsList" role="list" aria-label="Активные чаты"></div>
+                    <div class="chats-list" id="chatsList" role="list" aria-label="Список чатов"></div>
                 </div>
 
-                <!-- 3. Группы -->
+                <!-- 4. Группы -->
                 <div class="groups-section">
                     <div class="section-header groups-section-header">
                         <span class="section-title">👥 Группы</span>
-                        <div class="group-header-actions">
-                            <button class="create-group-btn" id="createGroupBtn" type="button" title="Создать группу" aria-label="Создать группу">
-                                ➕
-                            </button>
-                            <button class="collapse-section-btn" id="collapseGroupsBtn" type="button" title="Свернуть/Развернуть" aria-label="Свернуть список групп">
-                                <span class="collapse-icon">▼</span>
-                            </button>
-                        </div>
-                    </div>
-                    <div class="groups-list" id="groupsList" role="list" aria-label="Список групп"></div>
-                </div>
-
-                <!-- 4. Все пользователи (сворачиваемый список) -->
-                <div class="all-users-section">
-                    <div class="section-header all-users-header">
-                        <span class="section-title">👤 Пользователи</span>
-                        <button class="collapse-section-btn" id="collapseAllUsersBtn" type="button" title="Свернуть/Развернуть" aria-label="Свернуть список пользователей">
+                        <button class="collapse-section-btn" id="collapseGroupsBtn" type="button" title="Свернуть/Развернуть" aria-label="Свернуть список групп">
                             <span class="collapse-icon">▼</span>
                         </button>
                     </div>
-                    <div class="all-users-list" id="allUsersList" role="list" aria-label="Список пользователей"></div>
+                    <div class="groups-list" id="groupsList" role="list" aria-label="Список групп"></div>
                 </div>
-
-                <!-- Подвал -->
-                <footer class="sidebar-footer">
-                    <div class="current-user">
-                        <span class="user-icon" aria-hidden="true">👤</span>
-                        <span class="user-label" id="currentUserLabel">Пользователь</span>
-                    </div>
-                    <button id="settingsBtn" class="settings-btn" type="button" title="Настройки" aria-label="Настройки">⚙️</button>
-                    <button id="profileBtn" class="profile-btn" type="button" title="Профиль" aria-label="Открыть профиль">👤</button>
-                </footer>
             </aside>
 
             <!-- Правая панель (основная область чата) -->
