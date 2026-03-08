@@ -1909,32 +1909,35 @@ function renderAll() {
  */
 window.renderChatsListData = function() {
     const chats = [];
-    
+
     // Добавляем активные чаты с пользователями
     users.forEach(user => {
         if (user.name === currentUser) return;
-        
-        // Проверяем, есть ли активный чат
-        const isActive = user.activeChat === currentUser;
-        
+
         // Получаем последнее сообщение
         const key = `chat_messages_${currentUser}_${user.name}`;
         const saved = localStorage.getItem(key);
+        
+        // 🔹 ПОКАЗЫВАЕМ ТОЛЬКО пользователей, с которыми есть переписка
+        // (отправлено или получено хотя бы одно сообщение)
+        if (!saved) return; // Нет сообщений в localStorage
+        
         let lastMessage = 'Нет сообщений';
         let timestamp = Date.now();
-        
-        if (saved) {
-            try {
-                const messages = JSON.parse(saved);
-                if (messages.length > 0) {
-                    const lastMsg = messages[messages.length - 1];
-                    lastMessage = lastMsg.text || (lastMsg.fileData ? '📎 Файл' : 'Сообщение');
-                    timestamp = lastMsg.timestamp || Date.now();
-                }
-            } catch (e) {}
+
+        try {
+            const messages = JSON.parse(saved);
+            if (messages.length === 0) return; // Нет сообщений - не показываем в списке
+            
+            const lastMsg = messages[messages.length - 1];
+            lastMessage = lastMsg.text || (lastMsg.fileData ? '📎 Файл' : 'Сообщение');
+            timestamp = lastMsg.timestamp || Date.now();
+        } catch (e) {
+            console.error('❌ renderChatsListData: failed to parse messages:', e);
+            return; // Ошибка парсинга - не показываем
         }
-        
-        // Добавляем всех пользователей (не только активных)
+
+        // Добавляем только пользователей с активной перепиской
         chats.push({
             id: 'chat_' + user.name,
             type: 'personal',
@@ -1945,7 +1948,9 @@ window.renderChatsListData = function() {
             timestamp: timestamp,
             unreadCount: getUnreadMessagesCount(user.name),
             online: user.status === 'online',
-            activeChat: user.activeChat
+            activeChat: user.activeChat,
+            // 🔹 Данные профиля для всплывающей подсказки
+            profileData: getUserProfileData(user.name)
         });
     });
     
@@ -2024,6 +2029,35 @@ function getUserAvatar(username) {
     }
     // Заглушка - цветной фон с первой буквой
     return '';
+}
+
+/**
+ * Получить данные профиля пользователя для всплывающей подсказки
+ * @param {string} username - Имя пользователя
+ * @returns {Object} - Данные профиля
+ */
+function getUserProfileData(username) {
+    try {
+        const profile = JSON.parse(localStorage.getItem(`profile_${username}`) || '{}');
+        const user = users.find(u => u.name === username);
+        
+        return {
+            username: username,
+            status: user?.status || 'offline',
+            customStatus: profile.statusMessage || 'Нет статуса',
+            avatar: profile.avatarUrl || '',
+            badges: profile.badges || []
+        };
+    } catch (e) {
+        console.error('❌ getUserProfileData error:', e);
+        return {
+            username: username,
+            status: 'offline',
+            customStatus: 'Нет статуса',
+            avatar: '',
+            badges: []
+        };
+    }
 }
 
 /**
@@ -5201,11 +5235,11 @@ function initHotkeys() {
 }
 
 // ============================================================================
-// 🔹 Авто-вход и сессии
+// 🔹 ��вто-вход и сессии
 // ============================================================================
 
 /**
- * Автоматический вход по сохранённой сессии
+ * Автоматический ��ход по сохранённой сессии
  * @returns {boolean} - Успешно ли выполнен вход
  */
 function autoLogin() {

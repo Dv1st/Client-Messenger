@@ -336,9 +336,15 @@ function broadcast(msg, excludeWs = null) {
     });
 }
 
+/**
+ * Отправка списка пользователей для поиска
+ * Отправляет ВСЕХ пользователей с isVisibleInDirectory=true (онлайн и офлайн)
+ */
 function broadcastUserList() {
     const userList = Array.from(users.entries())
-        .filter(([_, user]) => user.devices.size > 0 && user.isVisibleInDirectory !== false)
+        // 🔹 Для поиска показываем всех пользователей, которые разрешили показ в каталоге
+        // (не только онлайн, но и офлайн - чтобы можно было найти и написать им)
+        .filter(([_, user]) => user.isVisibleInDirectory !== false)
         .map(([name, user]) => ({
             username: name,
             name: name,

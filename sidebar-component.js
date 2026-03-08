@@ -231,6 +231,20 @@ class SidebarComponent {
         const avatarInitials = this.getInitials(chat.name);
         const hasUnread = chat.unreadCount > 0;
 
+        // 🔹 Всплывающая подсказка с профилем (только для личных чатов)
+        const profileTooltip = !isGroup && chat.profileData ? `
+            <div class="chat-item-profile-tooltip">
+                <div class="tooltip-avatar">
+                    ${chat.profileData.avatar ? `<img src="${escapeHtml(chat.profileData.avatar)}" alt="">` : avatarInitials}
+                    <span class="tooltip-status-dot ${chat.profileData.status === 'online' ? 'online' : 'offline'}"></span>
+                </div>
+                <div class="tooltip-info">
+                    <div class="tooltip-username">${escapeHtml(chat.profileData.username)}</div>
+                    <div class="tooltip-status">${escapeHtml(chat.profileData.customStatus)}</div>
+                </div>
+            </div>
+        ` : '';
+
         return `
             <div class="chat-item ${isSelected ? 'selected' : ''}"
                  data-chat-id="${escapeHtml(chat.id)}"
@@ -243,6 +257,7 @@ class SidebarComponent {
                 <div class="chat-item-avatar ${isGroup ? '' : 'avatar-placeholder'}" aria-hidden="true">
                     ${chat.avatar ? `<img src="${escapeHtml(chat.avatar)}" alt="">` : avatarInitials}
                     ${!isGroup && chat.online ? `<span class="chat-item-status ${chat.online ? 'online' : 'offline'}"></span>` : ''}
+                    ${profileTooltip}
                 </div>
                 <div class="chat-item-info">
                     <div class="chat-item-name">
