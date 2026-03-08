@@ -37,7 +37,7 @@ async function initializeDatabase() {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    
+
     // Таблица пользователей
     await client.query(`
       CREATE TABLE IF NOT EXISTS users (
@@ -50,9 +50,14 @@ async function initializeDatabase() {
         allow_group_invite BOOLEAN DEFAULT FALSE,
         two_factor_secret TEXT,
         two_factor_enabled BOOLEAN DEFAULT FALSE,
-        two_factor_backup_codes TEXT,
-        user_badges JSONB DEFAULT '[]'::jsonb
+        two_factor_backup_codes TEXT
       )
+    `);
+
+    // 🔧 Добавляем недостающие колонки (миграции)
+    await client.query(`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS user_badges JSONB DEFAULT '[]'::jsonb
     `);
 
     // Таблица групп
