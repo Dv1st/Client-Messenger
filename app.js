@@ -196,9 +196,26 @@ function escapeHtml(str) {
         '>': '&gt;',
         '"': '&quot;',
         "'": '&#x27;',
-        '/': '&#x2F;'
+        '/': '&#x2F;',
+        '`': '&#x60;',
+        '=': '&#x3D;'
     };
-    return str.replace(/[&<>"'/]/g, char => escapeMap[char]);
+    return str.replace(/[&<>"'`=\/]/g, char => escapeMap[char]);
+}
+
+/**
+ * Безопасная вставка HTML с очисткой
+ * @param {HTMLElement} element - Элемент для вставки
+ * @param {string} html - HTML для вставки
+ */
+function setSafeInnerHTML(element, html) {
+    if (!element) return;
+    element.innerHTML = '';
+    const temp = document.createElement('div');
+    temp.innerHTML = html;
+    while (temp.firstChild) {
+        element.appendChild(temp.firstChild);
+    }
 }
 
 /**
@@ -242,12 +259,12 @@ document.addEventListener('DOMContentLoaded', () => {
     initLogin();
     initChat();
     initSettings();
-    initSidebar();
     initScrollTracking();
-    loadSavedUsers();
+    loadSavedUsers(); // Загружаем пользователей до sidebar
     loadSettings();
     initHotkeys();
     initProfile(); // 👤 Инициализация системы профилей
+    initSidebar(); // Инициализируем sidebar после загрузки пользователей
 
     // 🔒 Отправляем уведомление серверу при закрытии вкладки/браузера
     window.addEventListener('beforeunload', () => {
@@ -875,6 +892,13 @@ function handleLoginSuccess(data) {
     sendToServer({ type: 'get_groups' }); // 👥 Запрашиваем список групп
     requestAudioPermission();
 
+    // 👥 Обновляем sidebar после получения пользователей
+    setTimeout(() => {
+        if (window.sidebarComponent) {
+            window.sidebarComponent.renderChatsList();
+        }
+    }, 500);
+
     // 👥 Загружаем историю сообщений для всех групп после получения списка
     setTimeout(() => {
         if (groups && Array.isArray(groups)) {
@@ -1249,19 +1273,15 @@ function initSidebar() {
 
         // Callbacks
         onChatSelect: (chat) => {
-            console.log('📋 Chat selected:', chat);
             // Логика выбора чата
             if (chat.type === 'personal' && chat.userId) {
-                console.log('🔵 Opening personal chat with:', chat.userId);
                 selectUser(chat.userId);
             } else if (chat.type === 'group' && chat.groupId) {
-                console.log('🔵 Opening group chat:', chat.groupId);
                 selectGroup(chat.groupId);
             }
         },
 
         onUserStartChat: (user) => {
-            console.log('👤 Start chat with user:', user);
             // Логика начала чата с новым пользователем
             if (user.id) {
                 // Создаём новый чат если не существует
@@ -3488,7 +3508,7 @@ function closeMessageContextMenu() {
 }
 
 /**
- * Закрытие меню при клике
+ * Закрытие мен�� при клике
  */
 function closeMenuOnClick(e) {
     const menu = document.getElementById('messageContextMenu');

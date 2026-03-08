@@ -404,8 +404,8 @@ class SidebarComponent {
         this.renderChatsList();
 
         // Вызываем callback с полными данными
-        this.callbacks.onChatSelect?.({ 
-            id: chatId, 
+        this.callbacks.onChatSelect?.({
+            id: chatId,
             type: chatType,
             userId: userId,
             groupId: groupId

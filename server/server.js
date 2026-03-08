@@ -9,77 +9,9 @@
 const http = require('http');
 const WebSocket = require('ws');
 const crypto = require('crypto');
-const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
 const fs = require('fs');
-
-// ============================================================================
-// 🔹 Инициализация базы данных
-// ============================================================================
-const DB_PATH = path.join(__dirname, 'messenger.db');
-const db = new sqlite3.Database(DB_PATH, (err) => {
-    if (err) {
-        console.error('❌ Database error:', err);
-    } else {
-        console.log('💾 Connected to SQLite database');
-    }
-});
-
-/**
- * Инициализация таблиц БД (асинхронная)
- * @returns {Promise<void>}
- */
-function initializeDatabase() {
-    return new Promise((resolve, reject) => {
-        db.serialize(() => {
-            // Таблица пользователей
-            db.run(`
-                CREATE TABLE IF NOT EXISTS users (
-                    username TEXT PRIMARY KEY,
-                    passwordHash TEXT NOT NULL,
-                    salt TEXT NOT NULL,
-                    createdAt INTEGER,
-                    lastLogin INTEGER,
-                    isVisibleInDirectory INTEGER DEFAULT 0,
-                    allowGroupInvite INTEGER DEFAULT 0,
-                    twoFactorSecret TEXT,
-                    twoFactorEnabled INTEGER DEFAULT 0,
-                    twoFactorBackupCodes TEXT
-                )
-            `);
-
-            // Таблица групп
-            db.run(`
-                CREATE TABLE IF NOT EXISTS groups (
-                    id TEXT PRIMARY KEY,
-                    name TEXT NOT NULL,
-                    creator TEXT NOT NULL,
-                    createdAt INTEGER,
-                    lastMessage INTEGER
-                )
-            `);
-
-            // Таблица участников групп
-            db.run(`
-                CREATE TABLE IF NOT EXISTS group_members (
-                    groupId TEXT NOT NULL,
-                    username TEXT NOT NULL,
-                    PRIMARY KEY (groupId, username),
-                    FOREIGN KEY (groupId) REFERENCES groups(id) ON DELETE CASCADE,
-                    FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE
-                )
-            `);
-
-            console.log('✅ Database tables initialized');
-            resolve();
-        });
-
-        db.once('error', (err) => {
-            console.error('❌ Database initialization error:', err);
-            reject(err);
-        });
-    });
-}
+const db = require('./db');
 
 // ============================================================================
 // 🔹 Константы
@@ -124,6 +56,29 @@ const ALLOWED_ORIGINS = [
     'https://client-messenger-production.up.railway.app'
 ];
 
+// 🔒 Разрешённые MIME-типы для файлов
+const ALLOWED_MIME_TYPES = new Set([
+    'image/jpeg',
+    'image/png',
+    'image/gif',
+    'image/webp',
+    'video/mp4',
+    'video/webm',
+    'video/ogg',
+    'audio/mpeg',
+    'audio/ogg',
+    'audio/webm',
+    'application/pdf',
+    'text/plain'
+]);
+
+// 🔒 Опасные расширения файлов
+const DANGEROUS_EXTENSIONS = new Set([
+    '.svg', '.svgz', '.html', '.htm', '.xhtml', '.xht',
+    '.js', '.jsx', '.ts', '.tsx',
+    '.exe', '.bat', '.cmd', '.sh', '.php', '.phtml'
+]);
+
 // ============================================================================
 // 🔹 Хранилища данных
 // ============================================================================
@@ -134,247 +89,163 @@ const rateLimitMap = new Map(); // ip → {count, resetTime}
 const groups = new Map(); // groupId → {id, name, creator, members: Set, createdAt, lastMessage}
 
 // ============================================================================
-// 💾 Функции для работы с базой данных
+// 💾 Функции для работы с базой данных (PostgreSQL)
 // ============================================================================
 
 /**
  * Загрузка пользователей из БД при старте сервера
  * @returns {Promise<number>}
  */
-function loadUsersFromDatabase() {
-    return new Promise((resolve, reject) => {
-        db.all('SELECT * FROM users', [], (err, rows) => {
-            if (err) {
-                // Если таблица не существует - это нормально (первый запуск)
-                if (err.message.includes('no such table')) {
-                    console.warn('⚠️  Users table does not exist yet (first run)');
-                    resolve(0);
-                    return;
-                }
-                console.error('❌ Load users error:', err);
-                reject(err);
-                return;
-            }
-
-            rows.forEach(row => {
-                users.set(row.username, {
-                    passwordHash: row.passwordHash,
-                    salt: row.salt,
-                    createdAt: row.createdAt,
-                    lastLogin: row.lastLogin,
-                    isVisibleInDirectory: row.isVisibleInDirectory === 1,
-                    allowGroupInvite: row.allowGroupInvite === 1,
-                    twoFactorSecret: row.twoFactorSecret || null,
-                    twoFactorEnabled: row.twoFactorEnabled === 1,
-                    twoFactorBackupCodes: row.twoFactorBackupCodes || null,
-                    status: 'offline',
-                    activeChat: null,
-                    devices: new Map()
-                });
+async function loadUsersFromDatabase() {
+    try {
+        const rows = await db.getAllUsers();
+        
+        rows.forEach(row => {
+            users.set(row.username, {
+                passwordHash: row.password_hash,
+                salt: row.salt,
+                createdAt: row.created_at,
+                lastLogin: row.last_login,
+                isVisibleInDirectory: row.is_visible_in_directory === true,
+                allowGroupInvite: row.allow_group_invite === true,
+                twoFactorSecret: row.two_factor_secret || null,
+                twoFactorEnabled: row.two_factor_enabled === true,
+                twoFactorBackupCodes: row.two_factor_backup_codes || null,
+                status: 'offline',
+                activeChat: null,
+                devices: new Map()
             });
-
-            console.log(`✅ Loaded ${rows.length} users from database`);
-            resolve(rows.length);
         });
-    });
+
+        console.log(`✅ Loaded ${rows.length} users from database`);
+        return rows.length;
+    } catch (err) {
+        if (err.code === '42P01') { // table does not exist
+            console.warn('⚠️  Users table does not exist yet (first run)');
+            return 0;
+        }
+        console.error('❌ Load users error:', err);
+        throw err;
+    }
 }
 
 /**
  * Сохранение пользователя в БД
  */
-function saveUserToDatabase(username, userData) {
-    return new Promise((resolve, reject) => {
-        db.run(
-            `INSERT OR REPLACE INTO users
-             (username, passwordHash, salt, createdAt, lastLogin, isVisibleInDirectory, allowGroupInvite, twoFactorSecret, twoFactorEnabled, twoFactorBackupCodes)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [
-                username,
-                userData.passwordHash,
-                userData.salt,
-                userData.createdAt,
-                userData.lastLogin || null,
-                userData.isVisibleInDirectory ? 1 : 0,
-                userData.allowGroupInvite ? 1 : 0,
-                userData.twoFactorSecret || null,
-                userData.twoFactorEnabled ? 1 : 0,
-                userData.twoFactorBackupCodes || null
-            ],
-            (err) => {
-                if (err) {
-                    console.error('❌ Save user error:', err);
-                    reject(err);
-                } else {
-                    resolve();
-                }
-            }
-        );
-    });
+async function saveUserToDatabase(username, userData) {
+    try {
+        await db.saveUser(username, userData);
+    } catch (err) {
+        console.error('❌ Save user error:', err);
+        throw err;
+    }
 }
 
 /**
  * Загрузка групп из БД
  * @returns {Promise<void>}
  */
-function loadGroupsFromDatabase() {
-    return new Promise((resolve, reject) => {
-        db.all('SELECT * FROM groups', [], (err, rows) => {
-            if (err) {
-                // Если таблица не существует - это нормально (первый запуск)
-                if (err.message.includes('no such table')) {
-                    console.warn('⚠️  Groups table does not exist yet (first run)');
-                    resolve();
-                    return;
-                }
-                console.error('❌ Load groups error:', err);
-                reject(err);
-                return;
-            }
-
-            // Загружаем каждую группу и её участников
-            let loaded = 0;
-            rows.forEach(row => {
-                // Загружаем участников группы
-                db.all('SELECT username FROM group_members WHERE groupId = ?', [row.id], (err, members) => {
-                    if (err) {
-                        console.error('❌ Load group members error:', err);
-                        return;
-                    }
-
-                    const memberSet = new Set(members.map(m => m.username));
-                    groups.set(row.id, {
-                        id: row.id,
-                        name: row.name,
-                        creator: row.creator,
-                        members: memberSet,
-                        createdAt: row.createdAt,
-                        lastMessage: row.lastMessage
-                    });
-
-                    loaded++;
-                    if (loaded === rows.length) {
-                        console.log(`✅ Loaded ${rows.length} groups from database`);
-                        resolve();
-                    }
-                });
+async function loadGroupsFromDatabase() {
+    try {
+        const rows = await db.getAllGroups();
+        
+        for (const row of rows) {
+            const members = await db.getGroupMembers(row.id);
+            const memberSet = new Set(members.map(m => m.username));
+            
+            groups.set(row.id, {
+                id: row.id,
+                name: row.name,
+                creator: row.creator,
+                members: memberSet,
+                createdAt: row.created_at,
+                lastMessage: row.last_message
             });
+        }
 
-            if (rows.length === 0) {
-                resolve();
-            }
-        });
-    });
+        console.log(`✅ Loaded ${rows.length} groups from database`);
+    } catch (err) {
+        if (err.code === '42P01') { // table does not exist
+            console.warn('⚠️  Groups table does not exist yet (first run)');
+            return;
+        }
+        console.error('❌ Load groups error:', err);
+        throw err;
+    }
 }
 
 /**
  * Сохранение группы в БД
  */
-function saveGroupToDatabase(group) {
-    return new Promise((resolve, reject) => {
-        db.run(
-            `INSERT OR REPLACE INTO groups (id, name, creator, createdAt, lastMessage) 
-             VALUES (?, ?, ?, ?, ?)`,
-            [
-                group.id,
-                group.name,
-                group.creator,
-                group.createdAt,
-                group.lastMessage || null
-            ],
-            (err) => {
-                if (err) {
-                    console.error('❌ Save group error:', err);
-                    reject(err);
-                } else {
-                    resolve();
-                }
-            }
-        );
-    });
+async function saveGroupToDatabase(group) {
+    try {
+        await db.saveGroup(group);
+    } catch (err) {
+        console.error('❌ Save group error:', err);
+        throw err;
+    }
 }
 
 /**
  * Сохранение участников группы в БД
  */
-function saveGroupMembersToDatabase(groupId, members) {
-    return new Promise((resolve, reject) => {
-        // Сначала удаляем старых участников
-        db.run('DELETE FROM group_members WHERE groupId = ?', [groupId], (err) => {
-            if (err) {
-                console.error('❌ Delete group members error:', err);
-                reject(err);
-                return;
-            }
-            
-            // Вставляем новых участников
-            if (members.length === 0) {
-                resolve();
-                return;
-            }
-            
-            const stmt = db.prepare('INSERT OR IGNORE INTO group_members (groupId, username) VALUES (?, ?)');
-            members.forEach(username => {
-                stmt.run(groupId, username);
-            });
-            
-            stmt.finalize((err) => {
-                if (err) {
-                    console.error('❌ Save group members error:', err);
-                    reject(err);
-                } else {
-                    resolve();
-                }
-            });
-        });
-    });
+async function saveGroupMembersToDatabase(groupId, members) {
+    try {
+        await db.saveGroupMembers(groupId, members);
+    } catch (err) {
+        console.error('❌ Save group members error:', err);
+        throw err;
+    }
 }
 
 /**
  * Удаление группы из БД
  */
-function deleteGroupFromDatabase(groupId) {
-    return new Promise((resolve, reject) => {
-        db.run('DELETE FROM groups WHERE id = ?', [groupId], (err) => {
-            if (err) {
-                console.error('❌ Delete group error:', err);
-                reject(err);
-            } else {
-                db.run('DELETE FROM group_members WHERE groupId = ?', [groupId], (err2) => {
-                    if (err2) {
-                        console.error('❌ Delete group members error:', err2);
-                        reject(err2);
-                    } else {
-                        resolve();
-                    }
-                });
-            }
-        });
-    });
+async function deleteGroupFromDatabase(groupId) {
+    try {
+        await db.deleteGroup(groupId);
+    } catch (err) {
+        console.error('❌ Delete group error:', err);
+        throw err;
+    }
 }
 
 // ============================================================================
 // 🔹 HTTP Сервер
 // ============================================================================
 const server = http.createServer((req, res) => {
+    const origin = req.headers.origin;
+    
+    // 🔒 Проверяем origin против whitelist
+    if (origin && ALLOWED_ORIGINS.includes(origin)) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+    } else {
+        res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGINS[0]); // Fallback
+    }
+    
     // Security headers
     Object.entries(CSP_HEADERS).forEach(([key, value]) => {
         res.setHeader(key, value);
     });
 
-    // CORS
-    res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Access-Control-Max-Age', '86400');
 
     if (req.method === 'OPTIONS') {
-        res.writeHead(200);
+        res.writeHead(204);
         res.end();
         return;
     }
 
     if (req.url === '/health') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ status: 'ok', timestamp: Date.now(), version: '2.0.0' }));
+        res.end(JSON.stringify({ 
+            status: 'ok', 
+            timestamp: Date.now(), 
+            version: '2.0.0',
+            uptime: process.uptime()
+        }));
         return;
     }
 
@@ -1103,6 +974,7 @@ const MAX_FILES_PER_MESSAGE = 5;
 
 /**
  * Валидация файлов
+ * 🔒 ИСПРАВЛЕНИЕ: Блокировка опасных файлов и проверка сигнатур
  */
 function validateFiles(files) {
     if (!Array.isArray(files)) return null;
@@ -1120,47 +992,50 @@ function validateFiles(files) {
         // Проверка размера
         if (file.size > MAX_FILE_SIZE) continue;
 
-        // 🔒 Проверка размера base64 данных (не более 4/3 от размера файла + overhead)
+        // 🔒 Проверка расширения файла
+        const fileExt = '.' + file.name.split('.').pop().toLowerCase();
+        if (DANGEROUS_EXTENSIONS.has(fileExt)) {
+            console.warn(`🚫 Dangerous file extension blocked: ${fileExt}`);
+            continue;
+        }
+
+        // 🔒 Проверка MIME-типа (убираем параметры из Content-Type)
+        const lowerType = file.type.toLowerCase().split(';')[0].trim();
+        if (!ALLOWED_MIME_TYPES.has(lowerType)) {
+            console.warn(`🚫 Disallowed MIME type: ${file.type}`);
+            continue;
+        }
+
+        // 🔒 Проверка сигнатуры файла для изображений
+        if (lowerType.startsWith('image/') && lowerType !== 'image/svg+xml') {
+            const base64Data = file.data.split(',')[1] || file.data;
+            const header = base64Data.substring(0, 20);
+            
+            // Проверка JPEG: FF D8 FF
+            if (lowerType === 'image/jpeg' && !header.startsWith('/9j/')) {
+                console.warn(`🚫 Invalid JPEG signature`);
+                continue;
+            }
+            // Проверка PNG: 89 50 4E 47
+            if (lowerType === 'image/png' && !header.startsWith('iVBORw0KGgo')) {
+                console.warn(`🚫 Invalid PNG signature`);
+                continue;
+            }
+        }
+
+        // Проверка data URL
+        if (!file.data.startsWith('data:')) continue;
+        
+        // Проверка размера base64 данных
         const maxBase64Size = Math.ceil(file.size * 4 / 3) + 1000;
         if (file.data.length > maxBase64Size) {
             console.warn(`🚫 File data too large: ${file.data.length} > ${maxBase64Size}`);
             continue;
         }
 
-        // Проверка data URL
-        if (!file.data.startsWith('data:')) continue;
-
-        // 🔒 Проверка на опасные MIME-типы
-        const lowerType = file.type.toLowerCase();
-        const dangerousTypes = ['text/html', 'application/javascript', 'application/x-javascript'];
-        if (dangerousTypes.includes(lowerType)) {
-            console.warn(`🚫 Dangerous file type blocked: ${file.type}`);
-            continue;
-        }
-
-        // 🔒 Дополнительная проверка MIME-типа для изображений
-        if (file.type.startsWith('image/')) {
-            // Разрешаем только безопасные форматы изображений
-            const allowedImageTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-            if (!allowedImageTypes.includes(lowerType)) {
-                console.warn(`🚫 Disallowed image type: ${file.type}`);
-                continue;
-            }
-        }
-
-        // 🔒 Дополнительная проверка MIME-типа для видео
-        if (file.type.startsWith('video/')) {
-            // Разрешаем только безопасные форматы видео
-            const allowedVideoTypes = ['video/mp4', 'video/webm', 'video/ogg'];
-            if (!allowedVideoTypes.includes(lowerType)) {
-                console.warn(`🚫 Disallowed video type: ${file.type}`);
-                continue;
-            }
-        }
-
         validFiles.push({
-            name: file.name.substring(0, 255),
-            type: file.type.substring(0, 100),
+            name: file.name.substring(0, 255).replace(/[<>\/\\]/g, '_'),
+            type: lowerType.substring(0, 100),
             size: file.size,
             data: file.data.substring(0, MAX_FILE_SIZE * 2)
         });
@@ -1993,18 +1868,25 @@ wss.on('connection', (ws, req) => {
             return ws.send(JSON.stringify({ type: 'error', message: 'Неверный формат данных' }));
         }
 
-        if (!data.type || typeof data.type !== 'string') {
+        if (!data.type || typeof data.type !== 'string' || data.type.length > 50) {
             return ws.send(JSON.stringify({ type: 'error', message: 'Неверный тип сообщения' }));
         }
 
         const session = tokenId ? sessions.get(tokenId) : null;
         const username = session?.username;
 
-        // 🔒 Проверка 2FA верификации для всех команд кроме login/register/auto_login/logout/2fa_*
-        const skip2FACheck = ['register', 'login', 'auto_login', 'logout', '2fa_setup', '2fa_enable', '2fa_disable', '2fa_verify', '2fa_backup_codes', 'login_2fa', 'ping', 'get_users'].includes(data.type);
-        if (session && !session.twoFactorVerified && !skip2FACheck) {
-            return ws.send(JSON.stringify({ 
-                type: 'login_2fa_required', 
+        // 🔒 Проверка 2FA верификации для критичных команд
+        const REQUIRES_2FA_VERIFICATION = new Set([
+            'send_message', 'send_group_message', 'typing', 'chat_open',
+            'message_read', 'delete_message', 'message_reaction',
+            'create_group', 'add_member_to_group', 'remove_member_from_group',
+            'leave_group', 'delete_group', 'get_history', 'delete_chat',
+            'update_visibility', 'update_group_invite_permission'
+        ]);
+        
+        if (session && !session.twoFactorVerified && REQUIRES_2FA_VERIFICATION.has(data.type)) {
+            return ws.send(JSON.stringify({
+                type: 'login_2fa_required',
                 message: 'Требуется верификация 2FA',
                 username: session.username
             }));
@@ -2131,13 +2013,10 @@ wss.on('connection', (ws, req) => {
  */
 async function startServer() {
     try {
-        // Сначала инициализируем базу данных (создаём таблицы)
+        // Инициализируем базу данных (создаём таблицы)
         console.log('📦 Initializing database...');
-        await initializeDatabase();
-        
-        // Небольшая задержка чтобы убедиться что таблицы созданы
-        await new Promise(resolve => setTimeout(resolve, 100));
-        
+        await db.initializeDatabase();
+
         // Загружаем пользователей и группы из БД
         console.log('📦 Loading users from database...');
         await loadUsersFromDatabase();
@@ -2150,12 +2029,11 @@ async function startServer() {
             console.log(`🔗 WebSocket: ws://localhost:${PORT}`);
             console.log(`🔒 Session timeout: ${SESSION_TIMEOUT / 60000} min`);
             console.log(`🔒 Rate limit: ${RATE_LIMIT_MAX} req/${RATE_LIMIT_WINDOW / 1000}s`);
-            console.log(`💾 Database: ${DB_PATH}`);
+            console.log(`💾 Database: PostgreSQL (Railway)`);
             console.log(`\n⚠️  Production: Use WSS and configure allowedOrigins!\n`);
         });
     } catch (err) {
         console.error('❌ Failed to start server:', err);
-        console.error('💡 Try deleting the database file and restarting:', DB_PATH);
         process.exit(1);
     }
 }
@@ -2172,15 +2050,14 @@ process.on('SIGINT', () => {
     }
 
     wss.close();
-    server.close(() => {
+    server.close(async () => {
         console.log('✅ Server stopped');
-        db.close((err) => {
-            if (err) {
-                console.error('❌ Error closing database:', err);
-            } else {
-                console.log('💾 Database connection closed');
-            }
-        });
+        try {
+            await db.pool.end();
+            console.log('💾 Database connection closed');
+        } catch (err) {
+            console.error('❌ Error closing database:', err);
+        }
         process.exit(0);
     });
 });
