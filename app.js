@@ -48,6 +48,11 @@ let selectedGroup = null; // Текущая выбранная группа
 // 🔒 Безопасное хранение пароля (не в открытом виде!)
 let userPasswordHash = null; // Хеш пароля для сессии
 
+// 👤 Система профилей
+let userProfile = null; // Объект с данными профиля текущего пользователя
+let userBadges = []; // Массив значков с состоянием visibility
+let viewedProfileUserId = null; // ID пользователя, чей профиль сейчас просматривается
+
 // ============================================================================
 // 🔹 Константы
 // ============================================================================
@@ -55,6 +60,7 @@ const WS_URL = 'wss://client-messenger-production.up.railway.app';
 const DEBOUNCE_DELAY = 300;
 const MESSAGE_MAX_LENGTH = 10000;
 const MAX_MESSAGES_IN_STORAGE = 100;
+const DEFAULT_MESSAGE_COLOR = '#7B2CBF'; // 🔹 Цвет сообщений по умолчанию (фиолетовый)
 
 const STORAGE_KEYS = {
     USERS: 'messenger_users',
@@ -111,7 +117,27 @@ const DOM = {
     soundNotify: null,
     pushNotify: null,
     notificationSound: null,
-    currentUserLabel: null
+    currentUserLabel: null,
+
+    // 👤 Профиль
+    profileModal: null,
+    profileBtn: null,
+    editProfileBtn: null,
+    closeProfile: null,
+    profileAvatar: null,
+    profileUserName: null,
+    profileUserStatus: null,
+    avatarContainer: null,
+    avatarFileInput: null,
+    badgesGrid: null,
+    editPanel: null,
+    saveProfileBtn: null,
+    cancelProfileBtn: null,
+    avatarUrlInput: null,
+    applyAvatarUrlBtn: null,
+    badgeVisibilityList: null,
+    profileActionsSection: null,
+    sendMessageBtn: null
 };
 
 /**
@@ -127,10 +153,15 @@ function initDOM() {
         'encryptKeyBox', 'decryptPanel', 'decryptKeyBox', 'decryptBtn', 'themeSelect',
         'accentColorSelect', 'messageColorSelect', 'fontSizeSelect', 'showInDirectory',
         'allowGroupInvite', 'soundNotify', 'pushNotify', 'notificationSound', 'currentUserLabel',
-        'collapseGroupsBtn', 'addGroupBtn', 'createGroupModal', 'closeCreateGroup',
+        'collapseGroupsBtn', 'createGroupModal', 'closeCreateGroup',
         'groupNameInput', 'groupMembersSelect', 'createGroupConfirmBtn', 'createGroupStatus',
         // 📎 Элементы для работы с файлами
-        'attachFileBtn', 'fileInput', 'filePreviewContainer'
+        'attachFileBtn', 'fileInput', 'filePreviewContainer',
+        // 👤 Элементы профиля
+        'profileModal', 'profileBtn', 'editProfileBtn', 'closeProfile', 'profileAvatar',
+        'profileUserName', 'profileUserStatus', 'avatarContainer', 'avatarFileInput',
+        'badgesGrid', 'editPanel', 'saveProfileBtn', 'cancelProfileBtn', 'avatarUrlInput',
+        'applyAvatarUrlBtn', 'badgeVisibilityList', 'profileActionsSection', 'sendMessageBtn'
     ];
 
     ids.forEach(id => {
@@ -218,6 +249,17 @@ document.addEventListener('DOMContentLoaded', () => {
     loadSavedUsers();
     loadSettings();
     initHotkeys();
+    initProfile(); // 👤 Инициализация системы профилей
+
+    // 🔒 Отправляем уведомление серверу при закрытии вкладки/браузера
+    window.addEventListener('beforeunload', () => {
+        if (socket && socket.readyState === WebSocket.OPEN) {
+            // Отправляем сообщение о выходе
+            sendToServer({ type: 'logout' });
+            // Закрываем соединение
+            socket.close(1000, 'User closed browser');
+        }
+    });
 });
 
 // ============================================================================
@@ -256,9 +298,58 @@ function initTabs() {
 function initLogin() {
     const loginBtn = document.getElementById('loginBtn');
     const registerBtn = document.getElementById('registerBtn');
+    const regUsernameInput = document.getElementById('regUsername');
+    const regPasswordInput = document.getElementById('regPassword');
+    const regConfirmInput = document.getElementById('regConfirmPassword');
 
     if (loginBtn) loginBtn.addEventListener('click', handleLogin);
     if (registerBtn) registerBtn.addEventListener('click', handleRegister);
+    
+    // 🔒 Валидация в реальном времени для формы регистрации
+    if (regUsernameInput && regPasswordInput && regConfirmInput) {
+        [regUsernameInput, regPasswordInput, regConfirmInput].forEach(input => {
+            input.addEventListener('input', () => {
+                validateRegistrationForm();
+            });
+        });
+    }
+}
+
+/**
+ * Валидация формы регистрации в реальном времени
+ */
+function validateRegistrationForm() {
+    const registerBtn = document.getElementById('registerBtn');
+    const regUsernameInput = document.getElementById('regUsername');
+    const regPasswordInput = document.getElementById('regPassword');
+    const regConfirmInput = document.getElementById('regConfirmPassword');
+    
+    if (!registerBtn || !regUsernameInput || !regPasswordInput || !regConfirmInput) {
+        if (registerBtn) registerBtn.disabled = true;
+        return;
+    }
+    
+    const username = regUsernameInput.value.trim();
+    const password = regPasswordInput.value;
+    const confirm = regConfirmInput.value;
+    
+    // Проверяем все условия
+    const isUsernameValid = username.length >= 3 && username.length <= 20 && /^[A-Za-z0-9_]+$/.test(username);
+    const isPasswordValid = password.length >= 4;
+    const isConfirmMatch = password === confirm && confirm.length > 0;
+    
+    // 🔒 Визуальная индикация для каждого поля
+    regUsernameInput.classList.toggle('valid', isUsernameValid && username.length > 0);
+    regUsernameInput.classList.toggle('invalid', !isUsernameValid && username.length > 0);
+    
+    regPasswordInput.classList.toggle('valid', isPasswordValid);
+    regPasswordInput.classList.toggle('invalid', !isPasswordValid && password.length > 0);
+    
+    regConfirmInput.classList.toggle('valid', isConfirmMatch);
+    regConfirmInput.classList.toggle('invalid', !isConfirmMatch && confirm.length > 0);
+    
+    // Кнопка активна только если все поля заполнены корректно
+    registerBtn.disabled = !(isUsernameValid && isPasswordValid && isConfirmMatch);
 }
 
 /**
@@ -328,6 +419,7 @@ function handleRegister() {
     const usernameInput = document.getElementById('regUsername');
     const passwordInput = document.getElementById('regPassword');
     const confirmInput = document.getElementById('regConfirmPassword');
+    const registerBtn = document.getElementById('registerBtn');
 
     if (!usernameInput || !passwordInput || !confirmInput) return;
 
@@ -335,8 +427,9 @@ function handleRegister() {
     const password = passwordInput.value;
     const confirm = confirmInput.value;
 
-    if (!username || !password) {
-        showStatus('Введите имя пользователя и пароль');
+    // 🔒 Дополнительная проверка перед отправкой
+    if (!username || !password || password.length < 4) {
+        showStatus('Введите имя пользователя и пароль (мин. 4 символа)');
         return;
     }
 
@@ -361,6 +454,11 @@ function handleRegister() {
         return;
     }
 
+    // 🔒 Блокируем кнопку на время отправки
+    if (registerBtn) {
+        registerBtn.disabled = true;
+    }
+
     currentUser = username;
     // 🔒 Безопасное хранение: хешируем пароль перед сохранением
     userPasswordHash = simpleHash(password + username); // Соль = username
@@ -368,6 +466,12 @@ function handleRegister() {
     // Небольшая задержка для защиты от перебора
     setTimeout(() => {
         connectToServer({ type: 'register', username, password });
+        // Разблокируем кнопку через 2 секунды
+        setTimeout(() => {
+            if (registerBtn) {
+                registerBtn.disabled = false;
+            }
+        }, 2000);
     }, 300);
 }
 
@@ -487,7 +591,41 @@ function handleServerMessage(data) {
     try {
         switch (data.type) {
             case 'register_success':
-                showStatus('✅ Регистрация успешна! Теперь войдите', false);
+                // 🔒 Автоматический вход после регистрации
+                if (data.username && data.token) {
+                    // Сохраняем сессию
+                    currentUser = data.username;
+                    userPasswordHash = simpleHash(data.username + Date.now());
+                    saveAuthSession(currentUser, userPasswordHash);
+                    
+                    if (typeof data.isVisibleInDirectory === 'boolean') {
+                        isVisibleInDirectory = data.isVisibleInDirectory;
+                    }
+                    
+                    // Показываем чат
+                    DOM.loginWindow?.classList.add('hidden');
+                    DOM.chatWindow?.classList.remove('hidden');
+                    
+                    if (DOM.currentUserLabel) {
+                        DOM.currentUserLabel.textContent = currentUser;
+                    }
+                    
+                    console.log('✅ Registered and logged in:', currentUser);
+                    sendToServer({ type: 'get_users' });
+                    sendToServer({ type: 'get_groups' });
+                    requestAudioPermission();
+                    
+                    // 👥 Загружаем историю сообщений для всех групп
+                    setTimeout(() => {
+                        if (groups && Array.isArray(groups)) {
+                            groups.forEach(group => {
+                                loadGroupMessagesFromStorage(group.id);
+                            });
+                        }
+                    }, 500);
+                } else {
+                    showStatus('✅ Регистрация успешна! Теперь войдите', false);
+                }
                 break;
             case 'register_error':
             case 'login_error':
@@ -648,6 +786,15 @@ function handleLoginSuccess(data) {
     sendToServer({ type: 'get_users' });
     sendToServer({ type: 'get_groups' }); // 👥 Запрашиваем список групп
     requestAudioPermission();
+    
+    // 👥 Загружаем историю сообщений для всех групп после получения списка
+    setTimeout(() => {
+        if (groups && Array.isArray(groups)) {
+            groups.forEach(group => {
+                loadGroupMessagesFromStorage(group.id);
+            });
+        }
+    }, 500);
 }
 
 /**
@@ -905,11 +1052,12 @@ function initSidebar() {
         }
     }
 
-    // 👥 Кнопка создания группы
-    if (DOM.addGroupBtn) {
-        DOM.addGroupBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            showCreateGroupModal();
+    // 👥 Контекстное меню по ПКМ на секции групп для создания группы
+    const groupsSection = document.querySelector('.groups-section');
+    if (groupsSection) {
+        groupsSection.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            showGroupContextMenu(e);
         });
     }
 
@@ -1219,7 +1367,7 @@ function updateUserStatus(username, status, activeChat = null) {
         console.warn('⚠️ updateUserStatus: invalid username');
         return;
     }
-    
+
     const user = users.find(u => u.name === username);
     if (user) {
         user.status = status;
@@ -1230,6 +1378,19 @@ function updateUserStatus(username, status, activeChat = null) {
         // Обновляем статус в заголовке если это текущий выбранный пользователь
         if (selectedUser === username) {
             updateChatUserStatus(username);
+        }
+        
+        // 🔒 Если пользователь offline и был в чате с кем-то, обновляем activeChat
+        if (status === 'offline' && activeChat === null) {
+            // Находим всех пользователей, у кого activeChat === username и сбрасываем
+            users.forEach(u => {
+                if (u.activeChat === username) {
+                    u.activeChat = null;
+                }
+            });
+            saveUsersToStorage();
+            renderUsers();
+            renderActiveChats();
         }
     }
 }
@@ -1328,9 +1489,17 @@ function renderUsers() {
         const nameEl = document.createElement('span');
         nameEl.className = 'name';
         nameEl.textContent = userObj.name; // Безопасная вставка через textContent
+        nameEl.style.cursor = 'pointer';
+        nameEl.title = 'Клик: выбрать пользователя | Двойной клик: открыть профиль';
 
         item.appendChild(statusEl);
         item.appendChild(nameEl);
+
+        // Двойной клик для открытия профиля
+        item.addEventListener('dblclick', (e) => {
+            e.stopPropagation();
+            openProfile(userObj.name);
+        });
 
         fragment.appendChild(item);
     });
@@ -1553,13 +1722,9 @@ function updateChatUserStatus(username) {
 
     // Находим пользователя в списке
     const user = users.find(u => u.name === username);
-    if (!user) {
-        DOM.chatUserStatus.classList.add('hidden');
-        return;
-    }
-
+    
     // Преобразуем статус
-    const statusClass = user.status === 'in_chat' ? 'in-chat' : user.status;
+    const statusClass = user ? (user.status === 'in_chat' ? 'in-chat' : user.status) : 'offline';
     const statusLabels = {
         'online': 'Онлайн',
         'in-chat': 'В чате',
@@ -1607,7 +1772,8 @@ function selectUser(username) {
     selectedUser = username;
 
     if (DOM.chatTitle) {
-        DOM.chatTitle.textContent = '💬 ' + username;
+        // Обновляем заголовок чата со значками
+        updateChatTitleWithBadges();
     }
 
     updateUserItemSelection(username);
@@ -1843,6 +2009,39 @@ function selectGroup(groupId) {
     }
 
     setTimeout(() => { if (DOM.messageBox) DOM.messageBox.focus(); }, 100);
+}
+
+/**
+ * Показать контекстное меню для секции групп (ПКМ)
+ */
+function showGroupContextMenu(e) {
+    const existingMenu = document.querySelector('.groups-context-menu');
+    if (existingMenu) existingMenu.remove();
+
+    const menu = document.createElement('div');
+    menu.className = 'context-menu groups-context-menu';
+
+    const menuWidth = 180;
+    const menuHeight = 100;
+    menu.style.left = Math.min(e.pageX, window.innerWidth - menuWidth) + 'px';
+    menu.style.top = Math.min(e.pageY, window.innerHeight - menuHeight) + 'px';
+
+    // Пункт "Создать группу"
+    const createItem = document.createElement('div');
+    createItem.className = 'context-menu-item';
+    createItem.textContent = '➕ Создать группу';
+    createItem.addEventListener('click', () => {
+        showCreateGroupModal();
+        menu.remove();
+    });
+    menu.appendChild(createItem);
+
+    document.body.appendChild(menu);
+
+    // Закрытие при клике вне
+    setTimeout(() => {
+        document.addEventListener('click', () => menu.remove(), { once: true });
+    }, 100);
 }
 
 /**
@@ -2358,11 +2557,19 @@ async function sendMessage() {
     if (hasFiles) {
         for (const file of selectedFiles) {
             try {
-                const dataUrl = await readFileAsDataURL(file);
+                // Сжимаем изображения и видео перед отправкой
+                let processedFile = file;
+                if (file.type.startsWith('image/')) {
+                    processedFile = await compressImage(file);
+                } else if (file.type.startsWith('video/')) {
+                    processedFile = await compressVideo(file);
+                }
+
+                const dataUrl = await readFileAsDataURL(processedFile);
                 filesData.push({
-                    name: file.name,
-                    type: file.type,
-                    size: file.size,
+                    name: processedFile.name,
+                    type: processedFile.type,
+                    size: processedFile.size,
                     data: dataUrl
                 });
             } catch (e) {
@@ -2494,6 +2701,79 @@ async function sendMessage() {
 }
 
 /**
+ * 📸 Сжатие изображения с помощью Canvas
+ * @param {File} file - Исходный файл изображения
+ * @param {number} maxWidth - Максимальная ширина
+ * @param {number} maxHeight - Максимальная высота
+ * @param {number} quality - Качество сжатия (0.1-1.0)
+ * @returns {Promise<File>} - Сжатое изображение
+ */
+function compressImage(file, maxWidth = 1920, maxHeight = 1920, quality = 0.7) {
+    return new Promise((resolve) => {
+        // Если файл уже маленький, не сжимаем
+        if (file.size < 500 * 1024) { // Менее 500KB
+            resolve(file);
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const img = new Image();
+            img.onload = () => {
+                // Вычисляем новые размеры с сохранением пропорций
+                let width = img.width;
+                let height = img.height;
+
+                if (width > height) {
+                    if (width > maxWidth) {
+                        height = Math.round((height * maxWidth) / width);
+                        width = maxWidth;
+                    }
+                } else {
+                    if (height > maxHeight) {
+                        width = Math.round((width * maxHeight) / height);
+                        height = maxHeight;
+                    }
+                }
+
+                // Создаём canvas для сжатия
+                const canvas = document.createElement('canvas');
+                canvas.width = width;
+                canvas.height = height;
+
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, width, height);
+
+                // Конвертируем в Blob с сжатием
+                canvas.toBlob(
+                    (blob) => {
+                        if (blob) {
+                            // Создаём новый File из Blob
+                            const compressedFile = new File(
+                                [blob],
+                                file.name.replace(/\.[^/.]+$/, '.jpg'),
+                                { type: 'image/jpeg' }
+                            );
+                            console.log(`📸 Image compressed: ${file.size} → ${compressedFile.size} bytes (${Math.round((1 - compressedFile.size / file.size) * 100)}% saved)`);
+                            resolve(compressedFile);
+                        } else {
+                            // Если сжатие не удалось, возвращаем оригинал
+                            resolve(file);
+                        }
+                    },
+                    'image/jpeg',
+                    quality
+                );
+            };
+            img.onerror = () => resolve(file);
+            img.src = e.target.result;
+        };
+        reader.onerror = () => resolve(file);
+        reader.readAsDataURL(file);
+    });
+}
+
+/**
  * Чтение файла как DataURL
  */
 function readFileAsDataURL(file) {
@@ -2502,6 +2782,141 @@ function readFileAsDataURL(file) {
         reader.onload = (e) => resolve(e.target.result);
         reader.onerror = (e) => reject(e);
         reader.readAsDataURL(file);
+    });
+}
+
+/**
+ * 🎥 Сжатие видео с помощью Canvas и MediaRecorder
+ * @param {File} file - Исходный видеофайл
+ * @param {number} maxWidth - Максимальная ширина
+ * @param {number} maxHeight - Максимальная высота
+ * @param {number} videoBitsPerSecond - Битрейт видео
+ * @returns {Promise<File>} - Сжатое видео
+ */
+function compressVideo(file, maxWidth = 1280, maxHeight = 720, videoBitsPerSecond = 2500000) {
+    return new Promise((resolve) => {
+        // Если файл маленький, не сжимаем
+        if (file.size < 5 * 1024 * 1024) { // Менее 5MB
+            resolve(file);
+            return;
+        }
+
+        const video = document.createElement('video');
+        video.preload = 'metadata';
+        
+        video.onloadedmetadata = () => {
+            // Вычисляем новые размеры с сохранением пропорций
+            let width = video.videoWidth;
+            let height = video.videoHeight;
+
+            if (width > height) {
+                if (width > maxWidth) {
+                    height = Math.round((height * maxWidth) / width);
+                    width = maxWidth;
+                }
+            } else {
+                if (height > maxHeight) {
+                    width = Math.round((width * maxHeight) / height);
+                    height = maxHeight;
+                }
+            }
+
+            // Настраиваем canvas
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+
+            const ctx = canvas.getContext('2d');
+            
+            // Создаём поток для записи
+            const stream = canvas.captureStream(30); // 30 FPS
+            
+            // Добавляем аудио если есть
+            if (video.mozCaptureStream) {
+                const audioStream = video.mozCaptureStream();
+                const audioTracks = audioStream.getAudioTracks();
+                audioTracks.forEach(track => stream.addTrack(track));
+            } else if (video.captureStream) {
+                const audioStream = video.captureStream();
+                const audioTracks = audioStream.getAudioTracks();
+                audioTracks.forEach(track => stream.addTrack(track));
+            }
+
+            // Используем MediaRecorder для записи сжатого видео
+            const options = {
+                mimeType: 'video/webm;codecs=vp9',
+                videoBitsPerSecond: videoBitsPerSecond
+            };
+
+            let recordedChunks = [];
+            let mediaRecorder;
+
+            try {
+                mediaRecorder = new MediaRecorder(stream, options);
+            } catch (e) {
+                // Пробуем альтернативный кодек
+                try {
+                    options.mimeType = 'video/webm;codecs=vp8';
+                    mediaRecorder = new MediaRecorder(stream, options);
+                } catch (e2) {
+                    try {
+                        options.mimeType = 'video/webm';
+                        mediaRecorder = new MediaRecorder(stream, options);
+                    } catch (e3) {
+                        console.warn('⚠️ MediaRecorder not supported, sending original');
+                        resolve(file);
+                        return;
+                    }
+                }
+            }
+
+            mediaRecorder.ondataavailable = (e) => {
+                if (e.data.size > 0) {
+                    recordedChunks.push(e.data);
+                }
+            };
+
+            mediaRecorder.onstop = () => {
+                const blob = new Blob(recordedChunks, { type: 'video/webm' });
+                const compressedFile = new File(
+                    [blob],
+                    file.name.replace(/\.[^/.]+$/, '.webm'),
+                    { type: 'video/webm' }
+                );
+                
+                console.log(`🎥 Video compressed: ${file.size} → ${compressedFile.size} bytes (${Math.round((1 - compressedFile.size / file.size) * 100)}% saved)`);
+                resolve(compressedFile);
+            };
+
+            // Начинаем запись
+            mediaRecorder.start();
+
+            // Отрисовываем видео на canvas
+            video.currentTime = 0;
+            video.play();
+
+            const drawFrame = () => {
+                if (video.ended) {
+                    mediaRecorder.stop();
+                    return;
+                }
+                ctx.drawImage(video, 0, 0, width, height);
+                requestAnimationFrame(drawFrame);
+            };
+
+            video.onplay = () => {
+                drawFrame();
+            };
+
+            video.onerror = () => {
+                console.warn('⚠️ Video error, sending original');
+                resolve(file);
+            };
+        };
+
+        video.src = URL.createObjectURL(file);
+        video.load();
+        video.muted = false;
     });
 }
 
@@ -2528,6 +2943,12 @@ function createMessageElement(data, isOwn = false) {
         const senderEl = document.createElement('div');
         senderEl.className = 'sender';
         senderEl.textContent = escapeHtml(data.sender);
+        senderEl.style.cursor = 'pointer';
+        senderEl.title = 'Открыть профиль';
+        senderEl.addEventListener('click', (e) => {
+            e.stopPropagation();
+            openProfile(data.sender);
+        });
         message.appendChild(senderEl);
     }
 
@@ -3184,7 +3605,7 @@ function handleRemoteMessageReaction(timestamp, data) {
     const messages = DOM.messagesList.querySelectorAll('.message');
     messages.forEach(msg => {
         if (msg.dataset.timestamp == timestamp) {
-            // Получаем текущие реакции в формате {emoji: [{userId, timestamp}]}
+            // Получаем текущие реакции в фо��мате {emoji: [{userId, timestamp}]}
             const currentReactions = msg._reactions || {};
             
             // Инициализируем массив для этой реакции если нет
@@ -3198,7 +3619,7 @@ function handleRemoteMessageReaction(timestamp, data) {
             );
 
             if (add !== false) {
-                // Добавляем реакцию
+                // Д��бавляем реакцию
                 if (existingUserReactionIndex === -1) {
                     // Реакции от этого пользователя ещё нет — добавляем
                     currentReactions[reaction].push({
@@ -3493,8 +3914,7 @@ function createFileHtml(fileData) {
     if (type.startsWith('image/')) {
         return `
             <div class="message-file message-file-image">
-                <img src="${data}" alt="${escapeHtml(name)}" title="${escapeHtml(name)}">
-                <div class="file-name">${escapeHtml(name)} (${sizeStr})</div>
+                <img src="${data}" alt="${escapeHtml(name)}" title="${escapeHtml(name)} (${sizeStr})">
             </div>
         `;
     }
@@ -3502,11 +3922,9 @@ function createFileHtml(fileData) {
     if (type.startsWith('video/')) {
         return `
             <div class="message-file message-file-video">
-                <video controls>
+                <video controls title="${escapeHtml(name)} (${sizeStr})">
                     <source src="${data}" type="${escapeHtml(type)}">
-                    Ваш браузер не поддерживает видео.
                 </video>
-                <div class="file-name">${escapeHtml(name)} (${sizeStr})</div>
             </div>
         `;
     }
@@ -3514,11 +3932,9 @@ function createFileHtml(fileData) {
     if (type.startsWith('audio/')) {
         return `
             <div class="message-file message-file-audio">
-                <audio controls>
+                <audio controls title="${escapeHtml(name)} (${sizeStr})">
                     <source src="${data}" type="${escapeHtml(type)}">
-                    Ваш браузер не поддерживает аудио.
                 </audio>
-                <div class="file-name">${escapeHtml(name)} (${sizeStr})</div>
             </div>
         `;
     }
@@ -3783,6 +4199,517 @@ function initSettings() {
 
     if (DOM.createGroupConfirmBtn) {
         DOM.createGroupConfirmBtn.addEventListener('click', createGroup);
+    }
+}
+
+// ============================================================================
+// 👤 Система профилей пользователей
+// ============================================================================
+
+/**
+ * Стандартный набор значков пользователя
+ */
+const DEFAULT_BADGES = [
+    { id: 'active', icon: '🏆', name: 'Активный' },
+    { id: 'premium', icon: '⭐', name: 'Премиум' },
+    { id: 'moderator', icon: '🛡️', name: 'Модератор' },
+    { id: 'vip', icon: '💎', name: 'VIP' },
+    { id: 'verified', icon: '🎯', name: 'Верифицирован' },
+    { id: 'designer', icon: '🎨', name: 'Дизайнер' },
+    { id: 'developer', icon: '💻', name: 'Разработчик' },
+    { id: 'music', icon: '🎵', name: 'Музыкальный' }
+];
+
+/**
+ * Инициализация системы профилей
+ */
+function initProfile() {
+    // Загрузка профиля из localStorage
+    loadUserProfile();
+    
+    // Обработчики событий
+    if (DOM.profileBtn) {
+        DOM.profileBtn.addEventListener('click', () => openProfile(currentUser));
+    }
+    
+    if (DOM.closeProfile) {
+        DOM.closeProfile.addEventListener('click', closeProfile);
+    }
+    
+    if (DOM.editProfileBtn) {
+        DOM.editProfileBtn.addEventListener('click', toggleEditMode);
+    }
+    
+    if (DOM.avatarContainer) {
+        DOM.avatarContainer.addEventListener('click', () => {
+            if (viewedProfileUserId === currentUser && DOM.avatarFileInput) {
+                DOM.avatarFileInput.click();
+            }
+        });
+    }
+    
+    if (DOM.avatarFileInput) {
+        DOM.avatarFileInput.addEventListener('change', handleAvatarFileSelect);
+    }
+    
+    if (DOM.applyAvatarUrlBtn) {
+        DOM.applyAvatarUrlBtn.addEventListener('click', applyAvatarUrl);
+    }
+    
+    if (DOM.saveProfileBtn) {
+        DOM.saveProfileBtn.addEventListener('click', saveProfileChanges);
+    }
+    
+    if (DOM.cancelProfileBtn) {
+        DOM.cancelProfileBtn.addEventListener('click', cancelProfileChanges);
+    }
+    
+    if (DOM.sendMessageBtn) {
+        DOM.sendMessageBtn.addEventListener('click', () => {
+            if (viewedProfileUserId && viewedProfileUserId !== currentUser) {
+                selectUser(viewedProfileUserId);
+                closeProfile();
+            }
+        });
+    }
+    
+    // Закрытие по клику вне модального окна
+    if (DOM.profileModal) {
+        DOM.profileModal.addEventListener('click', (e) => {
+            if (e.target === DOM.profileModal) {
+                closeProfile();
+            }
+        });
+    }
+}
+
+/**
+ * Загрузка профиля пользователя из localStorage
+ */
+function loadUserProfile() {
+    if (!currentUser) return;
+    
+    const profileKey = `user_profile_${currentUser}`;
+    const badgesKey = `user_badges_${currentUser}`;
+    
+    try {
+        const savedProfile = localStorage.getItem(profileKey);
+        if (savedProfile) {
+            userProfile = JSON.parse(savedProfile);
+        } else {
+            userProfile = {
+                username: currentUser,
+                avatar: null,
+                status: 'online'
+            };
+        }
+        
+        const savedBadges = localStorage.getItem(badgesKey);
+        if (savedBadges) {
+            userBadges = JSON.parse(savedBadges);
+        } else {
+            // Инициализация значков по умолчанию
+            userBadges = DEFAULT_BADGES.map(badge => ({
+                ...badge,
+                visible: false // По умолчанию все значки скрыты
+            }));
+        }
+    } catch (e) {
+        console.error('❌ loadUserProfile error:', e);
+        userProfile = { username: currentUser, avatar: null, status: 'online' };
+        userBadges = DEFAULT_BADGES.map(badge => ({ ...badge, visible: false }));
+    }
+}
+
+/**
+ * Сохранение профиля пользователя в localStorage
+ */
+function saveUserProfile() {
+    if (!currentUser || !userProfile) return;
+    
+    try {
+        const profileKey = `user_profile_${currentUser}`;
+        const badgesKey = `user_badges_${currentUser}`;
+        
+        localStorage.setItem(profileKey, JSON.stringify(userProfile));
+        localStorage.setItem(badgesKey, JSON.stringify(userBadges));
+    } catch (e) {
+        console.error('❌ saveUserProfile error:', e);
+    }
+}
+
+/**
+ * Открытие профиля пользователя
+ * @param {string} userId - ID пользователя
+ */
+function openProfile(userId) {
+    if (!userId || !DOM.profileModal) return;
+    
+    viewedProfileUserId = userId;
+    const isOwnProfile = userId === currentUser;
+    
+    // Обновляем заголовок
+    const profileTitle = document.getElementById('profileTitle');
+    if (profileTitle) {
+        profileTitle.textContent = isOwnProfile ? 'Ваш профиль' : 'Профиль пользователя';
+    }
+    
+    // Заполняем данные профиля
+    const avatar = userProfile?.avatar || getDefaultAvatar(userId);
+    const name = userId;
+    const status = isOwnProfile ? 'online' : getUserStatus(userId);
+    
+    if (DOM.profileAvatar) {
+        DOM.profileAvatar.src = avatar;
+        DOM.profileAvatar.alt = `Аватар ${userId}`;
+    }
+    
+    if (DOM.profileUserName) {
+        DOM.profileUserName.textContent = name;
+    }
+    
+    if (DOM.profileUserStatus) {
+        DOM.profileUserStatus.className = 'profile-user-status ' + status;
+        const statusText = DOM.profileUserStatus.querySelector('.status-text');
+        if (statusText) {
+            statusText.textContent = status === 'online' ? 'Онлайн' : 'Офлайн';
+        }
+    }
+    
+    // Отображение значков
+    if (isOwnProfile) {
+        renderBadges(userBadges, true);
+    } else {
+        // Для чужого профиля показываем только видимые значки
+        const visibleBadges = userBadges.filter(b => b.visible);
+        renderBadges(visibleBadges, false);
+    }
+    
+    // Показываем/скрываем кнопку редактирования
+    if (DOM.editProfileBtn) {
+        DOM.editProfileBtn.classList.toggle('hidden', !isOwnProfile);
+    }
+    
+    // Показываем/скрываем панель действий для чужого профиля
+    if (DOM.profileActionsSection) {
+        DOM.profileActionsSection.classList.toggle('hidden', isOwnProfile);
+    }
+    
+    // Скрываем панель редактирования
+    if (DOM.editPanel) {
+        DOM.editPanel.classList.add('hidden');
+    }
+    
+    // Показываем модальное окно
+    DOM.profileModal.classList.remove('hidden');
+}
+
+/**
+ * Закрытие профиля
+ */
+function closeProfile() {
+    if (!DOM.profileModal) return;
+    
+    DOM.profileModal.classList.add('hidden');
+    viewedProfileUserId = null;
+}
+
+/**
+ * Переключение режима редактирования
+ */
+function toggleEditMode() {
+    if (!DOM.editPanel) return;
+    
+    const isEditing = !DOM.editPanel.classList.contains('hidden');
+    
+    if (isEditing) {
+        // Закрываем режим редактирования
+        DOM.editPanel.classList.add('hidden');
+        DOM.editProfileBtn.textContent = '✏️';
+    } else {
+        // Открываем режим редактирования
+        DOM.editPanel.classList.remove('hidden');
+        DOM.editProfileBtn.textContent = '🔒';
+        
+        // Заполняем форму редактирования
+        renderBadgeVisibilityList();
+    }
+}
+
+/**
+ * Отрисовка значков в профиле
+ * @param {Array} badges - Массив значков
+ * @param {boolean} isEditable - Режим редактирования
+ */
+function renderBadges(badges, isEditable) {
+    if (!DOM.badgesGrid) return;
+    
+    DOM.badgesGrid.innerHTML = '';
+    
+    if (!badges || badges.length === 0) {
+        DOM.badgesGrid.innerHTML = '<p class="no-badges-text">Значки отсутствуют</p>';
+        return;
+    }
+    
+    const fragment = document.createDocumentFragment();
+    
+    badges.forEach(badge => {
+        const badgeEl = document.createElement('div');
+        badgeEl.className = 'badge-item' + (badge.visible === false ? ' hidden-badge' : '');
+        
+        const iconEl = document.createElement('span');
+        iconEl.className = 'badge-icon';
+        iconEl.textContent = badge.icon;
+        
+        const nameEl = document.createElement('span');
+        nameEl.className = 'badge-name';
+        nameEl.textContent = badge.name;
+        
+        badgeEl.appendChild(iconEl);
+        badgeEl.appendChild(nameEl);
+        fragment.appendChild(badgeEl);
+    });
+    
+    DOM.badgesGrid.appendChild(fragment);
+}
+
+/**
+ * Отрисовка списка видимости значков (для редактирования)
+ */
+function renderBadgeVisibilityList() {
+    if (!DOM.badgeVisibilityList) return;
+    
+    DOM.badgeVisibilityList.innerHTML = '';
+    
+    const fragment = document.createDocumentFragment();
+    
+    userBadges.forEach(badge => {
+        const itemEl = document.createElement('div');
+        itemEl.className = 'badge-visibility-item';
+        
+        const iconEl = document.createElement('span');
+        iconEl.className = 'badge-icon-small';
+        iconEl.textContent = badge.icon;
+        
+        const labelEl = document.createElement('span');
+        labelEl.className = 'badge-label';
+        labelEl.textContent = badge.name;
+        
+        const toggleEl = document.createElement('button');
+        toggleEl.className = 'badge-toggle' + (badge.visible ? ' active' : '');
+        toggleEl.type = 'button';
+        toggleEl.dataset.badgeId = badge.id;
+        toggleEl.setAttribute('aria-label', `Переключить видимость значка ${badge.name}`);
+        toggleEl.setAttribute('aria-pressed', badge.visible ? 'true' : 'false');
+        toggleEl.addEventListener('click', () => toggleBadgeVisibility(badge.id));
+        
+        itemEl.appendChild(iconEl);
+        itemEl.appendChild(labelEl);
+        itemEl.appendChild(toggleEl);
+        fragment.appendChild(itemEl);
+    });
+    
+    DOM.badgeVisibilityList.appendChild(fragment);
+}
+
+/**
+ * Переключение видимости значка
+ * @param {string} badgeId - ID значка
+ */
+function toggleBadgeVisibility(badgeId) {
+    const badge = userBadges.find(b => b.id === badgeId);
+    if (badge) {
+        badge.visible = !badge.visible;
+        
+        // Обновляем UI
+        renderBadgeVisibilityList();
+        
+        // Обновляем превью значков
+        const visibleBadges = userBadges.filter(b => b.visible);
+        renderBadges(visibleBadges, false);
+    }
+}
+
+/**
+ * Обработка выбора файла аватара
+ * @param {Event} e - Событие change
+ */
+function handleAvatarFileSelect(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    // Валидация файла
+    if (!file.type.startsWith('image/')) {
+        showProfileStatus('Выберите изображение', true);
+        return;
+    }
+    
+    if (file.size > 5 * 1024 * 1024) {
+        showProfileStatus('Размер файла не должен превышать 5MB', true);
+        return;
+    }
+    
+    const reader = new FileReader();
+    reader.onload = (event) => {
+        if (event.target?.result) {
+            userProfile.avatar = event.target.result;
+            saveUserProfile();
+            
+            if (DOM.profileAvatar) {
+                DOM.profileAvatar.src = userProfile.avatar;
+            }
+            
+            showProfileStatus('Аватар успешно загружен', false);
+        }
+    };
+    reader.onerror = () => {
+        showProfileStatus('Ошибка загрузки файла', true);
+    };
+    reader.readAsDataURL(file);
+    
+    // Сбрасываем input для возможности повторной загрузки того же файла
+    e.target.value = '';
+}
+
+/**
+ * Применение URL аватара
+ */
+function applyAvatarUrl() {
+    if (!DOM.avatarUrlInput) return;
+    
+    const url = DOM.avatarUrlInput.value.trim();
+    if (!url) {
+        showProfileStatus('Введите URL изображения', true);
+        return;
+    }
+    
+    // Простая валидация URL
+    try {
+        new URL(url);
+    } catch {
+        showProfileStatus('Неверный формат URL', true);
+        return;
+    }
+    
+    userProfile.avatar = url;
+    saveUserProfile();
+    
+    if (DOM.profileAvatar) {
+        DOM.profileAvatar.src = url;
+    }
+    
+    DOM.avatarUrlInput.value = '';
+    showProfileStatus('Аватар успешно обновлён', false);
+}
+
+/**
+ * Сохранение изменений профиля
+ */
+function saveProfileChanges() {
+    saveUserProfile();
+    toggleEditMode();
+    showProfileStatus('Профиль успешно сохранён', false);
+    
+    // Обновляем заголовок чата если он открыт
+    if (selectedUser === currentUser) {
+        updateChatTitleWithBadges();
+    }
+}
+
+/**
+ * Отмена изменений профиля
+ */
+function cancelProfileChanges() {
+    // Перезагружаем профиль из localStorage
+    loadUserProfile();
+    toggleEditMode();
+}
+
+/**
+ * Показ сообщения статуса в профиле
+ * @param {string} message - Сообщение
+ * @param {boolean} isError - Ошибка ли это
+ */
+function showProfileStatus(message, isError = false) {
+    if (!DOM.profileStatusMessage) return;
+    
+    DOM.profileStatusMessage.textContent = message;
+    DOM.profileStatusMessage.style.color = isError ? 'var(--error)' : 'var(--success)';
+    
+    if (message) {
+        setTimeout(() => {
+            DOM.profileStatusMessage.textContent = '';
+        }, 3000);
+    }
+}
+
+/**
+ * Получить аватар по умолчанию (генерация по имени)
+ * @param {string} userId - ID пользователя
+ * @returns {string} - URL аватара
+ */
+function getDefaultAvatar(userId) {
+    // Генерация цвета на основе имени
+    const colors = ['#7B2CBF', '#2563EB', '#059669', '#DC2626', '#EA580C', '#DB2777', '#0891B2', '#7C3AED'];
+    let hash = 0;
+    for (let i = 0; i < userId.length; i++) {
+        hash = userId.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const color = colors[Math.abs(hash) % colors.length];
+    
+    // Используем сервис генерации аватаров
+    return `https://ui-avatars.com/api/?name=${encodeURIComponent(userId)}&background=${color.replace('#', '')}&color=fff&size=128`;
+}
+
+/**
+ * Получить статус пользователя
+ * @param {string} userId - ID пользователя
+ * @returns {string} - Статус
+ */
+function getUserStatus(userId) {
+    const user = users.find(u => u.name === userId);
+    if (user) {
+        return user.status === 'in_chat' ? 'online' : user.status;
+    }
+    return 'offline';
+}
+
+/**
+ * Обновление заголовка чата со значками
+ */
+function updateChatTitleWithBadges() {
+    if (!DOM.chatTitle || !selectedUser) return;
+
+    // Получаем видимые значки для текущего пользователя
+    const visibleBadges = userBadges.filter(b => b.visible);
+
+    if (selectedUser === currentUser && visibleBadges.length > 0) {
+        // Показываем первый значок в заголовке для своего профиля
+        const badge = visibleBadges[0].icon;
+        DOM.chatTitle.textContent = `${badge} ${selectedUser}`;
+    } else {
+        // Для других пользователей показываем их видимые значки
+        // Загружаем профиль другого пользователя если есть
+        const otherProfileKey = `user_profile_${selectedUser}`;
+        const otherBadgesKey = `user_badges_${selectedUser}`;
+        
+        try {
+            const savedBadges = localStorage.getItem(otherBadgesKey);
+            if (savedBadges) {
+                const otherBadges = JSON.parse(savedBadges);
+                const otherVisibleBadges = otherBadges.filter(b => b.visible);
+                
+                if (otherVisibleBadges.length > 0) {
+                    const badge = otherVisibleBadges[0].icon;
+                    DOM.chatTitle.textContent = `${badge} ${selectedUser}`;
+                    return;
+                }
+            }
+        } catch (e) {
+            console.error('❌ updateChatTitleWithBadges error:', e);
+        }
+        
+        DOM.chatTitle.textContent = `💬 ${selectedUser}`;
     }
 }
 
@@ -4130,8 +5057,14 @@ function clearChatStorage(username) {
 function loadSettings() {
     try {
         const settings = localStorage.getItem(STORAGE_KEYS.SETTINGS);
-        if (!settings) return;
-        
+
+        if (!settings) {
+            // Применяем значение по умолчанию
+            document.documentElement.style.setProperty('--own-message-bg', DEFAULT_MESSAGE_COLOR);
+            if (DOM.messageColorSelect) DOM.messageColorSelect.value = DEFAULT_MESSAGE_COLOR;
+            return;
+        }
+
         const data = JSON.parse(settings);
         if (!data || typeof data !== 'object') {
             console.warn('⚠️ loadSettings: invalid data format');
@@ -4152,6 +5085,10 @@ function loadSettings() {
         if (data.messageColor) {
             document.documentElement.style.setProperty('--own-message-bg', data.messageColor);
             if (DOM.messageColorSelect) DOM.messageColorSelect.value = data.messageColor;
+        } else {
+            // Если в настройках нет цвета сообщений, используем фиолетовый по умолчанию
+            document.documentElement.style.setProperty('--own-message-bg', DEFAULT_MESSAGE_COLOR);
+            if (DOM.messageColorSelect) DOM.messageColorSelect.value = DEFAULT_MESSAGE_COLOR;
         }
 
         if (data.fontSize) {
@@ -4538,4 +5475,145 @@ function initSettings() {
     if (DOM.createGroupConfirmBtn) {
         DOM.createGroupConfirmBtn.addEventListener('click', createGroup);
     }
+}
+
+
+function initProfile() {
+    loadUserProfile();
+    if (DOM.profileBtn) DOM.profileBtn.addEventListener('click', () => openProfile(currentUser));
+    if (DOM.closeProfile) DOM.closeProfile.addEventListener('click', closeProfile);
+    if (DOM.editProfileBtn) DOM.editProfileBtn.addEventListener('click', toggleEditMode);
+    if (DOM.avatarContainer) DOM.avatarContainer.addEventListener('click', () => { if (viewedProfileUserId === currentUser && DOM.avatarFileInput) DOM.avatarFileInput.click(); });
+    if (DOM.avatarFileInput) DOM.avatarFileInput.addEventListener('change', handleAvatarFileSelect);
+    if (DOM.applyAvatarUrlBtn) DOM.applyAvatarUrlBtn.addEventListener('click', applyAvatarUrl);
+    if (DOM.saveProfileBtn) DOM.saveProfileBtn.addEventListener('click', saveProfileChanges);
+    if (DOM.cancelProfileBtn) DOM.cancelProfileBtn.addEventListener('click', cancelProfileChanges);
+    if (DOM.sendMessageBtn) DOM.sendMessageBtn.addEventListener('click', () => { if (viewedProfileUserId && viewedProfileUserId !== currentUser) { selectUser(viewedProfileUserId); closeProfile(); } });
+    if (DOM.profileModal) DOM.profileModal.addEventListener('click', (e) => { if (e.target === DOM.profileModal) closeProfile(); });
+}
+
+function loadUserProfile() {
+    if (!currentUser) return;
+    const profileKey = `user_profile_${currentUser}`;
+    const badgesKey = `user_badges_${currentUser}`;
+    try {
+        const savedProfile = localStorage.getItem(profileKey);
+        userProfile = savedProfile ? JSON.parse(savedProfile) : { username: currentUser, avatar: null, status: 'online' };
+        const savedBadges = localStorage.getItem(badgesKey);
+        userBadges = savedBadges ? JSON.parse(savedBadges) : DEFAULT_BADGES.map(b => ({ ...b, visible: false }));
+    } catch (e) { console.error('❌ loadUserProfile error:', e); userProfile = { username: currentUser, avatar: null, status: 'online' }; userBadges = DEFAULT_BADGES.map(b => ({ ...b, visible: false })); }
+}
+
+function saveUserProfile() {
+    if (!currentUser || !userProfile) return;
+    try { localStorage.setItem(`user_profile_${currentUser}`, JSON.stringify(userProfile)); localStorage.setItem(`user_badges_${currentUser}`, JSON.stringify(userBadges)); }
+    catch (e) { console.error('❌ saveUserProfile error:', e); }
+}
+
+function openProfile(userId) {
+    if (!userId || !DOM.profileModal) return;
+    viewedProfileUserId = userId;
+    const isOwnProfile = userId === currentUser;
+    const profileTitle = document.getElementById('profileTitle');
+    if (profileTitle) profileTitle.textContent = isOwnProfile ? 'Ваш профиль' : 'Профиль пользователя';
+    const avatar = userProfile?.avatar || getDefaultAvatar(userId);
+    const status = isOwnProfile ? 'online' : getUserStatus(userId);
+    if (DOM.profileAvatar) { DOM.profileAvatar.src = avatar; DOM.profileAvatar.alt = `Аватар ${userId}`; }
+    if (DOM.profileUserName) DOM.profileUserName.textContent = userId;
+    if (DOM.profileUserStatus) { DOM.profileUserStatus.className = 'profile-user-status ' + status; const st = DOM.profileUserStatus.querySelector('.status-text'); if (st) st.textContent = status === 'online' ? 'Онлайн' : 'Офлайн'; }
+    if (isOwnProfile) renderBadges(userBadges); else renderBadges(userBadges.filter(b => b.visible));
+    if (DOM.editProfileBtn) DOM.editProfileBtn.classList.toggle('hidden', !isOwnProfile);
+    if (DOM.profileActionsSection) DOM.profileActionsSection.classList.toggle('hidden', isOwnProfile);
+    if (DOM.editPanel) DOM.editPanel.classList.add('hidden');
+    DOM.profileModal.classList.remove('hidden');
+}
+
+function closeProfile() { if (!DOM.profileModal) return; DOM.profileModal.classList.add('hidden'); viewedProfileUserId = null; }
+
+function toggleEditMode() {
+    if (!DOM.editPanel) return;
+    const isEditing = !DOM.editPanel.classList.contains('hidden');
+    if (isEditing) { DOM.editPanel.classList.add('hidden'); DOM.editProfileBtn.textContent = '✏️'; }
+    else { DOM.editPanel.classList.remove('hidden'); DOM.editProfileBtn.textContent = '🔒'; renderBadgeVisibilityList(); }
+}
+
+function renderBadges(badges) {
+    if (!DOM.badgesGrid) return;
+    DOM.badgesGrid.innerHTML = '';
+    if (!badges || badges.length === 0) { DOM.badgesGrid.innerHTML = '<p class="no-badges-text">Значки отсутствуют</p>'; return; }
+    const fragment = document.createDocumentFragment();
+    badges.forEach(badge => {
+        const badgeEl = document.createElement('div');
+        badgeEl.className = 'badge-item' + (badge.visible === false ? ' hidden-badge' : '');
+        const iconEl = document.createElement('span'); iconEl.className = 'badge-icon'; iconEl.textContent = badge.icon;
+        const nameEl = document.createElement('span'); nameEl.className = 'badge-name'; nameEl.textContent = badge.name;
+        badgeEl.appendChild(iconEl); badgeEl.appendChild(nameEl); fragment.appendChild(badgeEl);
+    });
+    DOM.badgesGrid.appendChild(fragment);
+}
+
+function renderBadgeVisibilityList() {
+    if (!DOM.badgeVisibilityList) return;
+    DOM.badgeVisibilityList.innerHTML = '';
+    const fragment = document.createDocumentFragment();
+    userBadges.forEach(badge => {
+        const itemEl = document.createElement('div'); itemEl.className = 'badge-visibility-item';
+        const iconEl = document.createElement('span'); iconEl.className = 'badge-icon-small'; iconEl.textContent = badge.icon;
+        const labelEl = document.createElement('span'); labelEl.className = 'badge-label'; labelEl.textContent = badge.name;
+        const toggleEl = document.createElement('button'); toggleEl.className = 'badge-toggle' + (badge.visible ? ' active' : ''); toggleEl.type = 'button'; toggleEl.dataset.badgeId = badge.id;
+        toggleEl.addEventListener('click', () => toggleBadgeVisibility(badge.id));
+        itemEl.appendChild(iconEl); itemEl.appendChild(labelEl); itemEl.appendChild(toggleEl); fragment.appendChild(itemEl);
+    });
+    DOM.badgeVisibilityList.appendChild(fragment);
+}
+
+function toggleBadgeVisibility(badgeId) {
+    const badge = userBadges.find(b => b.id === badgeId);
+    if (badge) { badge.visible = !badge.visible; renderBadgeVisibilityList(); renderBadges(userBadges.filter(b => b.visible)); }
+}
+
+function handleAvatarFileSelect(e) {
+    const file = e.target.files?.[0]; if (!file) return;
+    if (!file.type.startsWith('image/')) { showProfileStatus('Выберите изображение', true); return; }
+    if (file.size > 5 * 1024 * 1024) { showProfileStatus('Размер файла не должен превышать 5MB', true); return; }
+    const reader = new FileReader();
+    reader.onload = (event) => { if (event.target?.result) { userProfile.avatar = event.target.result; saveUserProfile(); if (DOM.profileAvatar) DOM.profileAvatar.src = userProfile.avatar; showProfileStatus('Аватар успешно загружен', false); } };
+    reader.onerror = () => showProfileStatus('Ошибка загрузки файла', true);
+    reader.readAsDataURL(file); e.target.value = '';
+}
+
+function applyAvatarUrl() {
+    if (!DOM.avatarUrlInput) return;
+    const url = DOM.avatarUrlInput.value.trim(); if (!url) { showProfileStatus('Введите URL изображения', true); return; }
+    try { new URL(url); } catch { showProfileStatus('Неверный формат URL', true); return; }
+    userProfile.avatar = url; saveUserProfile(); if (DOM.profileAvatar) DOM.profileAvatar.src = url;
+    DOM.avatarUrlInput.value = ''; showProfileStatus('Аватар успешно обновлён', false);
+}
+
+function saveProfileChanges() { saveUserProfile(); toggleEditMode(); showProfileStatus('Профиль успешно сохранён', false); if (selectedUser === currentUser) updateChatTitleWithBadges(); }
+
+function cancelProfileChanges() { loadUserProfile(); toggleEditMode(); }
+
+function showProfileStatus(message, isError = false) {
+    if (!DOM.profileStatusMessage) return;
+    DOM.profileStatusMessage.textContent = message;
+    DOM.profileStatusMessage.style.color = isError ? 'var(--error)' : 'var(--success)';
+    if (message) setTimeout(() => { DOM.profileStatusMessage.textContent = ''; }, 3000);
+}
+
+function getDefaultAvatar(userId) {
+    const colors = ['#7B2CBF', '#2563EB', '#059669', '#DC2626', '#EA580C', '#DB2777', '#0891B2', '#7C3AED'];
+    let hash = 0; for (let i = 0; i < userId.length; i++) { hash = userId.charCodeAt(i) + ((hash << 5) - hash); }
+    const color = colors[Math.abs(hash) % colors.length];
+    return `https://ui-avatars.com/api/?name=${encodeURIComponent(userId)}&background=${color.replace('#', '')}&color=fff&size=128`;
+}
+
+function getUserStatus(userId) { const user = users.find(u => u.name === userId); if (user) return user.status === 'in_chat' ? 'online' : user.status; return 'offline'; }
+
+function updateChatTitleWithBadges() {
+    if (!DOM.chatTitle || !selectedUser) return;
+    const visibleBadges = userBadges.filter(b => b.visible);
+    if (selectedUser === currentUser && visibleBadges.length > 0) { DOM.chatTitle.textContent = `${visibleBadges[0].icon} ${selectedUser}`; return; }
+    try { const savedBadges = localStorage.getItem(`user_badges_${selectedUser}`); if (savedBadges) { const otherBadges = JSON.parse(savedBadges); const otherVisibleBadges = otherBadges.filter(b => b.visible); if (otherVisibleBadges.length > 0) { DOM.chatTitle.textContent = `${otherVisibleBadges[0].icon} ${selectedUser}`; return; } } } catch (e) { console.error('❌ updateChatTitleWithBadges error:', e); }
+    DOM.chatTitle.textContent = `💬 ${selectedUser}`;
 }

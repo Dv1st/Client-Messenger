@@ -56,7 +56,7 @@
                     <label for="regConfirmPassword">Подтверждение пароля</label>
                     <input type="password" id="regConfirmPassword" placeholder="Подтвердите пароль" autocomplete="new-password" inputmode="text">
                 </div>
-                <button id="registerBtn" class="btn-primary" type="button">Зарегистрироваться</button>
+                <button id="registerBtn" class="btn-primary" type="button" disabled>Зарегистрироваться</button>
             </div>
 
             <div id="loginStatus" class="status-message" role="alert" aria-live="polite"></div>
@@ -100,9 +100,6 @@
                         <button class="collapse-section-btn" id="collapseGroupsBtn" type="button" title="Свернуть/Развернуть" aria-label="Свернуть список групп">
                             <span class="collapse-icon">▼</span>
                         </button>
-                        <button class="add-group-btn" id="addGroupBtn" type="button" title="Создать группу" aria-label="Создать группу">
-                            ➕
-                        </button>
                     </div>
                     <div class="groups-list" id="groupsList" role="list" aria-label="Список групп"></div>
                 </div>
@@ -130,6 +127,7 @@
                         <span class="user-label" id="currentUserLabel">Пользователь</span>
                     </div>
                     <button id="settingsBtn" class="settings-btn" type="button" title="Настройки" aria-label="Настройки">⚙️</button>
+                    <button id="profileBtn" class="profile-btn" type="button" title="Профиль" aria-label="Открыть профиль">👤</button>
                 </footer>
             </aside>
 
@@ -322,6 +320,75 @@
                 </div>
                 <button id="createGroupConfirmBtn" class="btn-primary" type="button">Создать группу</button>
                 <div id="createGroupStatus" class="status-message" role="alert" aria-live="polite"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 👤 Модальное окно профиля пользователя -->
+    <div id="profileModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="profileTitle">
+        <div class="modal-content modal-content-profile">
+            <header class="modal-header profile-modal-header">
+                <h2 id="profileTitle">Профиль</h2>
+                <div class="profile-header-actions">
+                    <button id="editProfileBtn" class="edit-profile-btn" type="button" title="Редактировать профиль" aria-label="Редактировать профиль">✏️</button>
+                    <button class="modal-close" id="closeProfile" type="button" aria-label="Закрыть">&times;</button>
+                </div>
+            </header>
+            <div class="modal-body profile-modal-body">
+                <!-- Аватар и основная информация -->
+                <div class="profile-header-section">
+                    <div class="avatar-container" id="avatarContainer">
+                        <img src="" alt="Аватар" id="profileAvatar" class="profile-avatar">
+                        <div class="avatar-overlay" id="avatarOverlay">
+                            <span class="avatar-upload-icon">📷</span>
+                            <span class="avatar-upload-text">Загрузить</span>
+                        </div>
+                        <input type="file" id="avatarFileInput" class="hidden" accept="image/*">
+                    </div>
+                    <div class="profile-user-info">
+                        <h3 class="profile-user-name" id="profileUserName">Имя пользователя</h3>
+                        <div class="profile-user-status" id="profileUserStatus">
+                            <span class="status-dot"></span>
+                            <span class="status-text">Онлайн</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Секция значков/бейджей -->
+                <div class="profile-badges-section">
+                    <h4 class="badges-section-title">🏅 Значки</h4>
+                    <div class="badges-grid" id="badgesGrid">
+                        <!-- Значки будут добавлены через JavaScript -->
+                    </div>
+                </div>
+
+                <!-- Панель редактирования (скрыта по умолчанию) -->
+                <div class="edit-panel hidden" id="editPanel">
+                    <div class="edit-panel-header">
+                        <h4>✏️ Редактирование профиля</h4>
+                    </div>
+                    <div class="edit-panel-content">
+                        <div class="edit-option">
+                            <label for="avatarUrlInput">URL аватарки:</label>
+                            <input type="url" id="avatarUrlInput" placeholder="https://example.com/avatar.jpg">
+                            <button id="applyAvatarUrlBtn" class="btn-small" type="button">Применить</button>
+                        </div>
+                        <div class="badge-visibility-list" id="badgeVisibilityList">
+                            <!-- Список значков с переключателями -->
+                        </div>
+                    </div>
+                    <div class="edit-panel-actions">
+                        <button id="saveProfileBtn" class="btn-save" type="button">💾 Сохранить</button>
+                        <button id="cancelProfileBtn" class="btn-cancel" type="button">❌ Отмена</button>
+                    </div>
+                </div>
+
+                <!-- Кнопка написать сообщение (для чужих профилей) -->
+                <div class="profile-actions-section hidden" id="profileActionsSection">
+                    <button id="sendMessageBtn" class="btn-send-message" type="button">💬 Написать сообщение</button>
+                </div>
+
+                <div id="profileStatusMessage" class="status-message" role="alert" aria-live="polite"></div>
             </div>
         </div>
     </div>

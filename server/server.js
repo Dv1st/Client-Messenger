@@ -1,7 +1,7 @@
 /**
  * Client Messenger - Серверная часть
  * @version 2.0.0
- * @description Оптимизированная версия с улучшенной безопасностью
+ * @description Оптимизированная версия с улучшенной безопасностью и базой данных
  */
 
 'use strict';
@@ -9,6 +9,66 @@
 const http = require('http');
 const WebSocket = require('ws');
 const crypto = require('crypto');
+const sqlite3 = require('sqlite3').verbose();
+const path = require('path');
+const fs = require('fs');
+
+// ============================================================================
+// 🔹 Инициализация базы данных
+// ============================================================================
+const DB_PATH = path.join(__dirname, 'messenger.db');
+const db = new sqlite3.Database(DB_PATH, (err) => {
+    if (err) {
+        console.error('❌ Database error:', err);
+    } else {
+        console.log('💾 Connected to SQLite database');
+        initializeDatabase();
+    }
+});
+
+/**
+ * Инициализация таблиц БД
+ */
+function initializeDatabase() {
+    db.serialize(() => {
+        // Таблица пользователей
+        db.run(`
+            CREATE TABLE IF NOT EXISTS users (
+                username TEXT PRIMARY KEY,
+                passwordHash TEXT NOT NULL,
+                salt TEXT NOT NULL,
+                createdAt INTEGER,
+                lastLogin INTEGER,
+                isVisibleInDirectory INTEGER DEFAULT 0,
+                allowGroupInvite INTEGER DEFAULT 0
+            )
+        `);
+
+        // Таблица групп
+        db.run(`
+            CREATE TABLE IF NOT EXISTS groups (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                creator TEXT NOT NULL,
+                createdAt INTEGER,
+                lastMessage INTEGER
+            )
+        `);
+
+        // Таблица участников групп
+        db.run(`
+            CREATE TABLE IF NOT EXISTS group_members (
+                groupId TEXT NOT NULL,
+                username TEXT NOT NULL,
+                PRIMARY KEY (groupId, username),
+                FOREIGN KEY (groupId) REFERENCES groups(id) ON DELETE CASCADE,
+                FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE
+            )
+        `);
+
+        console.log('✅ Database tables initialized');
+    });
+}
 
 // ============================================================================
 // 🔹 Константы
@@ -50,6 +110,205 @@ const sessions = new Map(); // tokenId → {username, deviceId, ws, createdAt, l
 const wsToToken = new Map(); // WebSocket → tokenId
 const rateLimitMap = new Map(); // ip → {count, resetTime}
 const groups = new Map(); // groupId → {id, name, creator, members: Set, createdAt, lastMessage}
+
+// ============================================================================
+// 💾 Функции для работы с базой данных
+// ============================================================================
+
+/**
+ * Загрузка пользователей из БД при старте сервера
+ */
+function loadUsersFromDatabase() {
+    return new Promise((resolve, reject) => {
+        db.all('SELECT * FROM users', [], (err, rows) => {
+            if (err) {
+                console.error('❌ Load users error:', err);
+                reject(err);
+                return;
+            }
+            
+            rows.forEach(row => {
+                users.set(row.username, {
+                    passwordHash: row.passwordHash,
+                    salt: row.salt,
+                    createdAt: row.createdAt,
+                    lastLogin: row.lastLogin,
+                    isVisibleInDirectory: row.isVisibleInDirectory === 1,
+                    allowGroupInvite: row.allowGroupInvite === 1,
+                    status: 'offline',
+                    activeChat: null,
+                    devices: new Map()
+                });
+            });
+            
+            console.log(`✅ Loaded ${rows.length} users from database`);
+            resolve(rows.length);
+        });
+    });
+}
+
+/**
+ * Сохранение пользователя в БД
+ */
+function saveUserToDatabase(username, userData) {
+    return new Promise((resolve, reject) => {
+        db.run(
+            `INSERT OR REPLACE INTO users 
+             (username, passwordHash, salt, createdAt, lastLogin, isVisibleInDirectory, allowGroupInvite) 
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [
+                username,
+                userData.passwordHash,
+                userData.salt,
+                userData.createdAt,
+                userData.lastLogin || null,
+                userData.isVisibleInDirectory ? 1 : 0,
+                userData.allowGroupInvite ? 1 : 0
+            ],
+            (err) => {
+                if (err) {
+                    console.error('❌ Save user error:', err);
+                    reject(err);
+                } else {
+                    resolve();
+                }
+            }
+        );
+    });
+}
+
+/**
+ * Загрузка групп из БД
+ */
+function loadGroupsFromDatabase() {
+    return new Promise((resolve, reject) => {
+        db.all('SELECT * FROM groups', [], (err, rows) => {
+            if (err) {
+                console.error('❌ Load groups error:', err);
+                reject(err);
+                return;
+            }
+            
+            // Загружаем каждую группу и её участников
+            let loaded = 0;
+            rows.forEach(row => {
+                // Загружаем участников группы
+                db.all('SELECT username FROM group_members WHERE groupId = ?', [row.id], (err, members) => {
+                    if (err) {
+                        console.error('❌ Load group members error:', err);
+                        return;
+                    }
+                    
+                    const memberSet = new Set(members.map(m => m.username));
+                    groups.set(row.id, {
+                        id: row.id,
+                        name: row.name,
+                        creator: row.creator,
+                        members: memberSet,
+                        createdAt: row.createdAt,
+                        lastMessage: row.lastMessage
+                    });
+                    
+                    loaded++;
+                    if (loaded === rows.length) {
+                        console.log(`✅ Loaded ${rows.length} groups from database`);
+                        resolve();
+                    }
+                });
+            });
+            
+            if (rows.length === 0) {
+                resolve();
+            }
+        });
+    });
+}
+
+/**
+ * Сохранение группы в БД
+ */
+function saveGroupToDatabase(group) {
+    return new Promise((resolve, reject) => {
+        db.run(
+            `INSERT OR REPLACE INTO groups (id, name, creator, createdAt, lastMessage) 
+             VALUES (?, ?, ?, ?, ?)`,
+            [
+                group.id,
+                group.name,
+                group.creator,
+                group.createdAt,
+                group.lastMessage || null
+            ],
+            (err) => {
+                if (err) {
+                    console.error('❌ Save group error:', err);
+                    reject(err);
+                } else {
+                    resolve();
+                }
+            }
+        );
+    });
+}
+
+/**
+ * Сохранение участников группы в БД
+ */
+function saveGroupMembersToDatabase(groupId, members) {
+    return new Promise((resolve, reject) => {
+        // Сначала удаляем старых участников
+        db.run('DELETE FROM group_members WHERE groupId = ?', [groupId], (err) => {
+            if (err) {
+                console.error('❌ Delete group members error:', err);
+                reject(err);
+                return;
+            }
+            
+            // Вставляем новых участников
+            if (members.length === 0) {
+                resolve();
+                return;
+            }
+            
+            const stmt = db.prepare('INSERT OR IGNORE INTO group_members (groupId, username) VALUES (?, ?)');
+            members.forEach(username => {
+                stmt.run(groupId, username);
+            });
+            
+            stmt.finalize((err) => {
+                if (err) {
+                    console.error('❌ Save group members error:', err);
+                    reject(err);
+                } else {
+                    resolve();
+                }
+            });
+        });
+    });
+}
+
+/**
+ * Удаление группы из БД
+ */
+function deleteGroupFromDatabase(groupId) {
+    return new Promise((resolve, reject) => {
+        db.run('DELETE FROM groups WHERE id = ?', [groupId], (err) => {
+            if (err) {
+                console.error('❌ Delete group error:', err);
+                reject(err);
+            } else {
+                db.run('DELETE FROM group_members WHERE groupId = ?', [groupId], (err2) => {
+                    if (err2) {
+                        console.error('❌ Delete group members error:', err2);
+                        reject(err2);
+                    } else {
+                        resolve();
+                    }
+                });
+            }
+        });
+    });
+}
 
 // ============================================================================
 // 🔹 HTTP Сервер
@@ -235,8 +494,10 @@ function handleRegister(ws, { username, password }, clientIp) {
     // Создание пользователя
     try {
         const salt = generateSalt();
-        users.set(username, {
-            passwordHash: hashPassword(password, salt),
+        const passwordHash = hashPassword(password, salt);
+        
+        const userData = {
+            passwordHash: passwordHash,
             salt,
             createdAt: Date.now(),
             lastLogin: null,
@@ -245,10 +506,55 @@ function handleRegister(ws, { username, password }, clientIp) {
             status: 'offline',
             activeChat: null,
             devices: new Map()
+        };
+        
+        // Сохраняем в памяти
+        users.set(username, userData);
+        
+        // 🔒 Сохраняем в базу данных
+        saveUserToDatabase(username, userData).catch(err => {
+            console.error('❌ Failed to save user to database:', err);
         });
 
         console.log(`✅ Registered: ${username} from ${clientIp}`);
-        ws.send(JSON.stringify({ type: 'register_success', message: 'Регистрация успешна! Теперь войдите.' }));
+
+        // 🔒 Автоматический вход после успешной регистрации
+        const tokenId = generateToken();
+        const deviceId = 'device_' + crypto.randomBytes(8).toString('hex');
+
+        const session = {
+            username,
+            deviceId,
+            ws,
+            createdAt: Date.now(),
+            lastActivity: Date.now()
+        };
+
+        sessions.set(tokenId, session);
+        wsToToken.set(ws, tokenId);
+
+        const user = users.get(username);
+        user.devices.set(deviceId, { ws, lastActivity: Date.now() });
+        user.lastLogin = Date.now();
+        user.status = 'online';
+        
+        // 🔒 Обновляем запись в БД с lastLogin
+        saveUserToDatabase(username, user).catch(err => {
+            console.error('❌ Failed to update user login:', err);
+        });
+
+        console.log(`✅ Auto-login after registration: ${username} (${deviceId})`);
+
+        ws.send(JSON.stringify({
+            type: 'register_success',
+            username,
+            deviceId,
+            token: tokenId,
+            isVisibleInDirectory: user.isVisibleInDirectory,
+            message: 'Регистрация успешна! Выполнен вход в аккаунт.'
+        }));
+
+        broadcastUserList();
     } catch (e) {
         console.error('❌ Register error:', e);
         ws.send(JSON.stringify({ type: 'register_error', message: 'Ошибка при регистрации' }));
@@ -302,6 +608,11 @@ function handleLogin(ws, { username, password }, clientIp) {
         user.devices.set(deviceId, { ws, lastActivity: Date.now() });
         user.lastLogin = Date.now();
         user.status = 'online';
+        
+        // 🔒 Сохраняем lastLogin в БД
+        saveUserToDatabase(username, user).catch(err => {
+            console.error('❌ Failed to save user login:', err);
+        });
 
         console.log(`✅ Logged in: ${username} (${deviceId}) from ${clientIp}`);
 
@@ -331,11 +642,36 @@ function handleLogout(ws, tokenId, isDisconnect = false) {
             user.devices.delete(session.deviceId);
             if (user.devices.size === 0) {
                 user.status = 'offline';
+                // 🔒 Сбрасываем activeChat при полном отключении
+                const oldActiveChat = user.activeChat;
                 user.activeChat = null;
+                
+                // 🔒 Рассылаем обновление статуса всем
                 broadcast({
                     type: 'user_status_update',
                     username: session.username,
                     status: 'offline',
+                    activeChat: null
+                });
+                
+                // 🔒 Если пользователь был в чате с кем-то, уведомляем того пользователя
+                if (oldActiveChat) {
+                    const otherUser = users.get(oldActiveChat);
+                    if (otherUser) {
+                        broadcast({
+                            type: 'user_offline',
+                            username: session.username,
+                            activeChat: null
+                        });
+                    }
+                }
+            } else {
+                // 🔒 Если остались другие устройства, обновляем activeChat
+                user.activeChat = null;
+                broadcast({
+                    type: 'user_status_update',
+                    username: session.username,
+                    status: user.status,
                     activeChat: null
                 });
             }
@@ -381,6 +717,26 @@ function validateFiles(files) {
 
         // Проверка data URL
         if (!file.data.startsWith('data:')) continue;
+
+        // 🔒 Дополнительная проверка MIME-типа для изображений
+        if (file.type.startsWith('image/')) {
+            // Разрешаем только безопасные форматы изображений
+            const allowedImageTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+            if (!allowedImageTypes.includes(file.type.toLowerCase())) {
+                console.warn(`🚫 Disallowed image type: ${file.type}`);
+                continue;
+            }
+        }
+        
+        // 🔒 Дополнительная проверка MIME-типа для видео
+        if (file.type.startsWith('video/')) {
+            // Разрешаем только безопасные форматы видео
+            const allowedVideoTypes = ['video/mp4', 'video/webm', 'video/ogg'];
+            if (!allowedVideoTypes.includes(file.type.toLowerCase())) {
+                console.warn(`🚫 Disallowed video type: ${file.type}`);
+                continue;
+            }
+        }
 
         validFiles.push({
             name: file.name.substring(0, 255),
@@ -603,6 +959,11 @@ function handleUpdateVisibility(ws, username, { isVisible }) {
     if (!user) return;
 
     user.isVisibleInDirectory = typeof isVisible === 'boolean' ? isVisible : true;
+    
+    // 🔒 Сохраняем в БД
+    saveUserToDatabase(username, user).catch(err => {
+        console.error('❌ Failed to save user visibility:', err);
+    });
 
     ws.send(JSON.stringify({
         type: 'visibility_updated',
@@ -618,6 +979,11 @@ function handleUpdateGroupInvitePermission(ws, username, { allow }) {
     if (!user) return;
 
     user.allowGroupInvite = typeof allow === 'boolean' ? allow : false;
+    
+    // 🔒 Сохраняем в БД
+    saveUserToDatabase(username, user).catch(err => {
+        console.error('❌ Failed to save user group invite permission:', err);
+    });
 
     ws.send(JSON.stringify({
         type: 'group_invite_permission_updated',
@@ -695,6 +1061,16 @@ function handleCreateGroup(ws, username, { name, members }) {
     };
 
     groups.set(groupId, group);
+    
+    // 🔒 Сохраняем группу в БД
+    saveGroupToDatabase(group).catch(err => {
+        console.error('❌ Failed to save group to database:', err);
+    });
+    
+    // 🔒 Сохраняем участников группы в БД
+    saveGroupMembersToDatabase(groupId, [...validMembers]).catch(err => {
+        console.error('❌ Failed to save group members to database:', err);
+    });
 
     console.log(`👥 Group created: ${groupId} by ${username}, members: ${[...validMembers].join(', ')}`);
 
@@ -908,6 +1284,12 @@ function handleDeleteGroup(ws, username, { groupId }) {
     notifyGroupMembers(group, 'group_deleted', { groupId });
 
     groups.delete(groupId);
+    
+    // 🔒 Удаляем группу из БД
+    deleteGroupFromDatabase(groupId).catch(err => {
+        console.error('❌ Failed to delete group from database:', err);
+    });
+    
     broadcastGroupList();
 }
 
@@ -1108,13 +1490,32 @@ wss.on('connection', (ws, req) => {
 // ============================================================================
 // 🚀 Запуск сервера
 // ============================================================================
-server.listen(PORT, '0.0.0.0', () => {
-    console.log(`\n🚀 Server v2.0.0 running on port ${PORT}`);
-    console.log(`🔗 WebSocket: ws://localhost:${PORT}`);
-    console.log(`🔒 Session timeout: ${SESSION_TIMEOUT / 60000} min`);
-    console.log(`🔒 Rate limit: ${RATE_LIMIT_MAX} req/${RATE_LIMIT_WINDOW / 1000}s`);
-    console.log(`\n⚠️  Production: Use WSS and configure allowedOrigins!\n`);
-});
+
+/**
+ * Асинхронная инициализация сервера
+ */
+async function startServer() {
+    try {
+        // Загружаем пользователей и группы из БД
+        await loadUsersFromDatabase();
+        await loadGroupsFromDatabase();
+        
+        // Запускаем сервер
+        server.listen(PORT, '0.0.0.0', () => {
+            console.log(`\n🚀 Server v2.0.0 running on port ${PORT}`);
+            console.log(`🔗 WebSocket: ws://localhost:${PORT}`);
+            console.log(`🔒 Session timeout: ${SESSION_TIMEOUT / 60000} min`);
+            console.log(`🔒 Rate limit: ${RATE_LIMIT_MAX} req/${RATE_LIMIT_WINDOW / 1000}s`);
+            console.log(`💾 Database: ${DB_PATH}`);
+            console.log(`\n⚠️  Production: Use WSS and configure allowedOrigins!\n`);
+        });
+    } catch (err) {
+        console.error('❌ Failed to start server:', err);
+        process.exit(1);
+    }
+}
+
+startServer();
 
 // Graceful shutdown
 process.on('SIGINT', () => {
@@ -1128,6 +1529,13 @@ process.on('SIGINT', () => {
     wss.close();
     server.close(() => {
         console.log('✅ Server stopped');
+        db.close((err) => {
+            if (err) {
+                console.error('❌ Error closing database:', err);
+            } else {
+                console.log('💾 Database connection closed');
+            }
+        });
         process.exit(0);
     });
 });
