@@ -79,7 +79,6 @@ const DOM = {
     sidebarTrigger: null,
     searchBox: null,
     chatsList: null,
-    groupsList: null,
 
     // Чат
     messagesList: null,
@@ -113,11 +112,10 @@ const DOM = {
     soundNotify: null,
     pushNotify: null,
     notificationSound: null,
-    currentUserLabel: null,
 
     // 👤 Профиль
     profileModal: null,
-    profileBtn: null,
+    footerProfileBtn: null,
     editProfileBtn: null,
     closeProfile: null,
     profileAvatar: null,
@@ -144,18 +142,18 @@ const DOM = {
 function initDOM() {
     const ids = [
         'loginWindow', 'chatWindow', 'settingsModal', 'sidebar', 'sidebarToggle',
-        'sidebarTrigger', 'searchBox', 'chatsList', 'groupsList',
+        'sidebarTrigger', 'searchBox', 'chatsList',
         'messagesList', 'inputPanel', 'chatPlaceholder', 'chatTitle', 'chatUserStatus', 'backBtn',
         'scrollToBottomBtn', 'unreadCount', 'messageBox', 'sendBtn', 'encryptCheckBox',
         'encryptKeyBox', 'decryptPanel', 'decryptKeyBox', 'decryptBtn', 'themeSelect',
         'accentColorSelect', 'messageColorSelect', 'fontSizeSelect', 'showInDirectory',
-        'allowGroupInvite', 'soundNotify', 'pushNotify', 'notificationSound', 'currentUserLabel',
-        'collapseGroupsBtn', 'createGroupModal', 'closeCreateGroup',
+        'allowGroupInvite', 'soundNotify', 'pushNotify', 'notificationSound',
+        'createGroupModal', 'closeCreateGroup',
         'groupNameInput', 'groupMembersSelect', 'createGroupConfirmBtn', 'createGroupStatus',
         // 📎 Элементы для работы с файлами
         'attachFileBtn', 'fileInput', 'filePreviewContainer',
         // 👤 Элементы профиля
-        'profileModal', 'profileBtn', 'editProfileBtn', 'closeProfile', 'profileAvatar',
+        'profileModal', 'footerProfileBtn', 'editProfileBtn', 'closeProfile', 'profileAvatar',
         'profileUserName', 'profileUserStatus', 'avatarContainer', 'avatarFileInput',
         'badgesGrid', 'editPanel', 'saveProfileBtn', 'cancelProfileBtn', 'avatarUrlInput',
         'applyAvatarUrlBtn', 'badgeVisibilityList', 'profileActionsSection', 'sendMessageBtn',
@@ -671,10 +669,6 @@ function handleServerMessage(data) {
                     DOM.loginWindow?.classList.add('hidden');
                     DOM.chatWindow?.classList.remove('hidden');
 
-                    if (DOM.currentUserLabel) {
-                        DOM.currentUserLabel.textContent = currentUser;
-                    }
-
                     // Обновляем footer sidebar
                     const footerUserName = document.getElementById('footerUserName');
                     const footerUserInitials = document.getElementById('footerUserInitials');
@@ -890,10 +884,6 @@ function handleLoginSuccess(data) {
 
     DOM.loginWindow?.classList.add('hidden');
     DOM.chatWindow?.classList.remove('hidden');
-
-    if (DOM.currentUserLabel) {
-        DOM.currentUserLabel.textContent = currentUser;
-    }
 
     // Обновляем footer sidebar
     const footerUserName = document.getElementById('footerUserName');
@@ -1254,28 +1244,6 @@ function initSidebar() {
         }
     }
 
-    // 👥 Кнопка сворачивания списка групп
-    if (DOM.collapseGroupsBtn) {
-        DOM.collapseGroupsBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const groupsSection = document.querySelector('.groups-section');
-            if (groupsSection) {
-                groupsSection.classList.toggle('collapsed');
-                DOM.collapseGroupsBtn.classList.toggle('collapsed');
-                localStorage.setItem('groups_list_collapsed', groupsSection.classList.contains('collapsed'));
-            }
-        });
-
-        const groupsCollapsed = localStorage.getItem('groups_list_collapsed') === 'true';
-        if (groupsCollapsed) {
-            const groupsSection = document.querySelector('.groups-section');
-            if (groupsSection) {
-                groupsSection.classList.add('collapsed');
-                DOM.collapseGroupsBtn.classList.add('collapsed');
-            }
-        }
-    }
-
     // 👤 Кнопка сворачивания списка всех пользователей
     const collapseAllUsersBtn = document.getElementById('collapseAllUsersBtn');
     if (collapseAllUsersBtn) {
@@ -1447,8 +1415,8 @@ function initUserListEvents() {
         if (username) showFolderContextMenu(e, username);
     });
 
-    // 👥 Делегирование для списка групп
-    DOM.groupsList?.addEventListener('click', (e) => {
+    // 👥 Делегирование для списка чатов
+    DOM.chatsList?.addEventListener('click', (e) => {
         const groupItem = e.target.closest('.group-item');
         if (!groupItem) return;
 
@@ -1680,7 +1648,7 @@ function updateUserStatus(username, status, activeChat = null) {
 
         // 🔒 Если пользователь offline и был в чате с кем-то, обновляем activeChat
         if (status === 'offline' && activeChat === null) {
-            // Находим всех пользователей, у кого activeChat === username и сбрасываем
+            // Находим всех пользователей, у кого activeChat === username и сбрасыв��ем
             users.forEach(u => {
                 if (u.activeChat === username) {
                     u.activeChat = null;
@@ -1714,7 +1682,7 @@ function updateUserVisibility(username, isVisible) {
 function getLastMessageEmoji(username) {
     try {
         const messages = loadMessagesFromStorage(username);
-        if (!messages || messages.length === 0) return '💬';
+        if (!messages || messages.length === 0) return '�������';
 
         const lastMessage = messages[messages.length - 1];
         if (!lastMessage) return '💬';
@@ -2315,67 +2283,9 @@ function deleteChat(username, itemElement) {
  * Рендеринг списка групп
  */
 function renderGroups() {
-    if (!DOM.groupsList) return;
+    if (!DOM.chatsList) return;
 
-    DOM.groupsList.innerHTML = '';
-
-    if (groups.length === 0) {
-        DOM.groupsList.style.display = 'none';
-        return;
-    }
-
-    DOM.groupsList.style.display = 'block';
-    const fragment = document.createDocumentFragment();
-
-    groups.forEach(group => {
-        const item = document.createElement('div');
-        item.className = 'group-item';
-        item.dataset.groupId = group.id;
-        item.dataset.groupName = group.name;
-
-        const groupIcon = document.createElement('span');
-        groupIcon.className = 'group-icon';
-        groupIcon.textContent = '👥';
-        groupIcon.setAttribute('aria-hidden', 'true');
-
-        const groupName = document.createElement('span');
-        groupName.className = 'group-name';
-        groupName.textContent = group.name;
-        groupName.style.cursor = 'pointer';
-        groupName.title = 'Открыть чат группы';
-
-        // Кнопки действий
-        const actionButtons = document.createElement('div');
-        actionButtons.className = 'group-actions';
-
-        // Кнопка удалить группу (только для создателя)
-        if (group.creator === currentUser) {
-            const deleteBtn = document.createElement('button');
-            deleteBtn.className = 'group-action-btn delete-group-btn';
-            deleteBtn.type = 'button';
-            deleteBtn.textContent = '🗑️';
-            deleteBtn.title = 'Удалить группу';
-            deleteBtn.setAttribute('aria-label', 'Удалить группу');
-            deleteBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                deleteGroup(group.id, group.name);
-            });
-            actionButtons.appendChild(deleteBtn);
-        }
-
-        // Клик по группе для открытия чата
-        item.addEventListener('click', () => {
-            selectGroup(group.id);
-        });
-
-        item.appendChild(groupIcon);
-        item.appendChild(groupName);
-        item.appendChild(actionButtons);
-
-        fragment.appendChild(item);
-    });
-
-    DOM.groupsList.appendChild(fragment);
+    // Группы рендерятся вместе с чатами в renderChatsAndGroups()
 }
 
 /**
@@ -3582,7 +3492,7 @@ function createMessageMenuItem(text, onClick, isDanger = false) {
 }
 
 /**
- * Создать разделитель меню
+ * Создат�� ��азделитель меню
  */
 function createMessageMenuDivider() {
     const divider = document.createElement('div');
@@ -4491,10 +4401,10 @@ const DEFAULT_BADGES = [
 function initProfile() {
     // Загрузка профиля из localStorage
     loadUserProfile();
-    
+
     // Обработчики событий
-    if (DOM.profileBtn) {
-        DOM.profileBtn.addEventListener('click', () => openProfile(currentUser));
+    if (DOM.footerProfileBtn) {
+        DOM.footerProfileBtn.addEventListener('click', () => openProfile(currentUser));
     }
     
     if (DOM.closeProfile) {
