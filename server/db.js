@@ -170,19 +170,21 @@ async function saveUser(username, userData) {
       userData.passwordHash,
       userData.salt,
       userData.createdAt,
-      userData.lastLogin || null,
-      userData.isVisibleInDirectory || false,
-      userData.allowGroupInvite || false,
-      userData.twoFactorSecret || null,
-      userData.twoFactorEnabled || false,
-      userData.twoFactorBackupCodes || null,
-      JSON.stringify(userData.userBadges || [])
+      userData.lastLogin ?? null,
+      userData.isVisibleInDirectory ?? false,
+      userData.allowGroupInvite ?? false,
+      userData.twoFactorSecret ?? null,
+      userData.twoFactorEnabled ?? false,
+      userData.twoFactorBackupCodes ?? null,
+      JSON.stringify(userData.userBadges ?? [])
   ];
 
   // 🔐 Отладка: проверяем сохранение salt и passwordHash
   console.log(`💾 saveUser: ${username}`);
   console.log(`   passwordHash: ${userData.passwordHash ? userData.passwordHash.substring(0, 16) + '...' : 'MISSING'}`);
   console.log(`   salt: ${userData.salt ? userData.salt.substring(0, 16) + '...' : 'MISSING'}`);
+  console.log(`   isVisibleInDirectory: ${userData.isVisibleInDirectory ?? false}`);
+  console.log(`   allowGroupInvite: ${userData.allowGroupInvite ?? false}`);
 
   try {
     const result = await pool.query(

@@ -845,6 +845,13 @@ function handleServerMessage(data) {
                     }
                 }
                 break;
+            // 🏅 Каталог значков получен с сервера
+            case 'badge_catalog':
+                if (Array.isArray(data.catalog)) {
+                    // Обновляем локальный каталог на основе серверного
+                    updateBadgeCatalogFromServer(data.catalog);
+                }
+                break;
             // 🔐 2FA сообщения
             case '2fa_setup_response':
             case '2fa_enabled':
@@ -920,9 +927,18 @@ function handleLoginSuccess(data) {
         footerUserInitials.textContent = currentUser.slice(0, 2).toUpperCase();
     }
 
+    // 📥 Обновляем UI настроек конфиденциальности из сервера
+    if (DOM.showInDirectory) {
+        DOM.showInDirectory.checked = isVisibleInDirectory;
+    }
+    if (DOM.allowGroupInvite) {
+        DOM.allowGroupInvite.checked = allowGroupInvite;
+    }
+
     console.log('✅ Connected:', currentUser);
     sendToServer({ type: 'get_users' });
     sendToServer({ type: 'get_groups' }); // 👥 Запрашиваем список групп
+    requestBadgeCatalog(); // 🏅 Запрашиваем каталог значков
     requestAudioPermission();
 
     // 👥 Обновляем sidebar после получения пользователей
@@ -3465,7 +3481,7 @@ function createMessageElement(data, isOwn = false) {
         message.appendChild(textEl);
     }
 
-    // 📎 Отображение файлов
+    // 📎 О��ображение файлов
     if (data.files && data.files.length > 0) {
         const filesContainer = document.createElement('div');
         filesContainer.className = 'message-files';
@@ -4482,6 +4498,43 @@ function getAvailableBadgeIds() {
  */
 function getBadgeInfo(badgeId) {
     return BADGES_CATALOG[badgeId] || null;
+}
+
+/**
+ * Обновить каталог значков из сервера
+ * @param {Array} catalog - Массив значков с сервера
+ */
+function updateBadgeCatalogFromServer(catalog) {
+    if (!Array.isArray(catalog)) return;
+
+    // Обновляем BADGES_CATALOG на основе серверных данных
+    catalog.forEach(item => {
+        if (item && item.id && item.icon && item.name) {
+            BADGES_CATALOG[item.id] = {
+                icon: item.icon,
+                name: item.name,
+                description: item.description || ''
+            };
+        }
+    });
+
+    console.log(`🏅 Badge catalog updated from server: ${catalog.length} items`);
+
+    // Если открыт профиль - перерисовываем значки
+    if (DOM.profileModal && !DOM.profileModal.classList.contains('hidden')) {
+        renderBadges(userBadges, viewedProfileUserId === currentUser);
+    }
+}
+
+/**
+ * Запросить каталог значков с сервера
+ */
+function requestBadgeCatalog() {
+    if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({
+            type: 'get_badge_catalog'
+        }));
+    }
 }
 
 /**
