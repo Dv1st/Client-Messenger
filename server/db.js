@@ -173,33 +173,41 @@ async function saveUser(username, userData) {
       userData.twoFactorBackupCodes || null,
       JSON.stringify(userData.userBadges || [])
   ];
-  
+
   // 🔐 Отладка: проверяем сохранение salt и passwordHash
   console.log(`💾 saveUser: ${username}`);
   console.log(`   passwordHash: ${userData.passwordHash ? userData.passwordHash.substring(0, 16) + '...' : 'MISSING'}`);
   console.log(`   salt: ${userData.salt ? userData.salt.substring(0, 16) + '...' : 'MISSING'}`);
-  
-  await pool.query(
-    `INSERT INTO users
-     (username, password_hash, salt, created_at, last_login,
-      is_visible_in_directory, allow_group_invite,
-      two_factor_secret, two_factor_enabled, two_factor_backup_codes,
-      user_badges)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-     ON CONFLICT (username) DO UPDATE SET
-       password_hash = EXCLUDED.password_hash,
-       salt = EXCLUDED.salt,
-       last_login = EXCLUDED.last_login,
-       is_visible_in_directory = EXCLUDED.is_visible_in_directory,
-       allow_group_invite = EXCLUDED.allow_group_invite,
-       two_factor_secret = EXCLUDED.two_factor_secret,
-       two_factor_enabled = EXCLUDED.two_factor_enabled,
-       two_factor_backup_codes = EXCLUDED.two_factor_backup_codes,
-       user_badges = EXCLUDED.user_badges`,
-    values
-  );
-  
-  console.log(`✅ saveUser completed: ${username}`);
+
+  try {
+    const result = await pool.query(
+      `INSERT INTO users
+       (username, password_hash, salt, created_at, last_login,
+        is_visible_in_directory, allow_group_invite,
+        two_factor_secret, two_factor_enabled, two_factor_backup_codes,
+        user_badges)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+       ON CONFLICT (username) DO UPDATE SET
+         password_hash = EXCLUDED.password_hash,
+         salt = EXCLUDED.salt,
+         last_login = EXCLUDED.last_login,
+         is_visible_in_directory = EXCLUDED.is_visible_in_directory,
+         allow_group_invite = EXCLUDED.allow_group_invite,
+         two_factor_secret = EXCLUDED.two_factor_secret,
+         two_factor_enabled = EXCLUDED.two_factor_enabled,
+         two_factor_backup_codes = EXCLUDED.two_factor_backup_codes,
+         user_badges = EXCLUDED.user_badges`,
+      values
+    );
+
+    console.log(`✅ saveUser completed: ${username}`);
+    console.log(`   Rows affected: ${result.rowCount}`);
+  } catch (err) {
+    console.error(`❌ saveUser error for ${username}:`, err.message);
+    console.error(`   SQL State: ${err.code}`);
+    console.error(`   Detail: ${err.detail}`);
+    throw err; // Пробрасываем ошибку вверх
+  }
 }
 
 /**

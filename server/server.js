@@ -610,7 +610,7 @@ setInterval(cleanupSessions, 5 * 60 * 1000);
 // ============================================================================
 // 🔐 Авторизация
 // ============================================================================
-function handleRegister(ws, { username, password }, clientIp) {
+async function handleRegister(ws, { username, password }, clientIp) {
     if (!checkRateLimit(clientIp)) {
         return ws.send(JSON.stringify({ type: 'register_error', message: 'Слишком много попыток. Подождите.' }));
     }
@@ -665,16 +665,14 @@ function handleRegister(ws, { username, password }, clientIp) {
             activeChat: null,
             devices: new Map()
         };
-        
+
         // Сохраняем в памяти
         users.set(username, userData);
-        
-        // 🔒 Сохраняем в базу данных
-        saveUserToDatabase(username, userData).catch(err => {
-            console.error('❌ Failed to save user to database:', err);
-        });
 
-        console.log(`✅ User saved to memory: ${username}`);
+        // 🔒 🔴 ЖДЁМ сохранения в базу данных перед продолжением
+        await saveUserToDatabase(username, userData);
+
+        console.log(`✅ User saved to database: ${username}`);
         console.log(`   passwordHash: ${passwordHash.substring(0, 16)}...`);
         console.log(`   salt: ${salt.substring(0, 16)}...`);
 
@@ -699,11 +697,9 @@ function handleRegister(ws, { username, password }, clientIp) {
         user.devices.set(deviceId, { ws, lastActivity: Date.now() });
         user.lastLogin = Date.now();
         user.status = 'online';
-        
-        // 🔒 Обновляем запись в БД с lastLogin
-        saveUserToDatabase(username, user).catch(err => {
-            console.error('❌ Failed to update user login:', err);
-        });
+
+        // 🔒 🔴 ЖДЁМ обновления записи в БД с lastLogin
+        await saveUserToDatabase(username, user);
 
         console.log(`✅ Auto-login after registration: ${username} (${deviceId})`);
 
@@ -1752,7 +1748,7 @@ function handleAddMemberToGroup(ws, username, { groupId, member }) {
     }
 
     if (!memberUser.allowGroupInvite) {
-        return ws.send(JSON.stringify({ type: 'error', message: `Пользователь "${member}" запретил добавлять себя в группы` }));
+        return ws.send(JSON.stringify({ type: 'error', message: `Пользователь "${member}" за��������ретил добавлять себя в группы` }));
     }
 
     if (group.members.has(member)) {
@@ -2016,7 +2012,7 @@ wss.on('connection', (ws, req) => {
 
     ws.on('pong', () => { ws.isAlive = true; });
 
-    ws.on('message', (raw) => {
+    ws.on('message', async (raw) => {
         const tokenId = wsToToken.get(ws);
         if (tokenId) {
             const session = sessions.get(tokenId);
@@ -2045,7 +2041,7 @@ wss.on('connection', (ws, req) => {
             'leave_group', 'delete_group', 'get_history', 'delete_chat',
             'update_visibility', 'update_group_invite_permission'
         ]);
-        
+
         if (session && !session.twoFactorVerified && REQUIRES_2FA_VERIFICATION.has(data.type)) {
             return ws.send(JSON.stringify({
                 type: 'login_2fa_required',
@@ -2055,7 +2051,12 @@ wss.on('connection', (ws, req) => {
         }
 
         switch (data.type) {
-            case 'register': handleRegister(ws, data, clientIp); break;
+            case 'register':
+                await handleRegister(ws, data, clientIp).catch(err => {
+                    console.error('❌ Register error:', err);
+                    ws.send(JSON.stringify({ type: 'register_error', message: 'Ошибка при регистрации' }));
+                });
+                break;
             case 'login': handleLogin(ws, data, clientIp); break;
             case 'login_2fa': handleLogin2FA(ws, data, clientIp); break;
             case 'auto_login': handleAutoLogin(ws, data, clientIp); break;
@@ -2065,6 +2066,8 @@ wss.on('connection', (ws, req) => {
                 break;
             case 'send_message':
                 if (!session) return ws.send(JSON.stringify({ type: 'error', message: 'Требуется авторизация' }));
+                console.log('📩 Received send_message from:', username);
+                console.log('   Data:', JSON.stringify(data).substring(0, 200));
                 handleMessage(ws, username, data);
                 break;
             case 'typing':

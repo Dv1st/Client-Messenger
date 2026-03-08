@@ -643,8 +643,10 @@ function handleServerMessage(data) {
     }
 
     // 🔒 Защита от переполнения и подделки типа
-    if (data.type.length > 50 || !/^[a-z_]+$/.test(data.type)) {
-        console.warn('⚠️ handleServerMessage: invalid type format');
+    // Разрешаем буквы (верхний/нижний регистр), цифры и подчёркивания
+    if (data.type.length > 50 || !/^[a-zA-Z0-9_]+$/.test(data.type)) {
+        console.warn('⚠️ handleServerMessage: invalid type format', data.type);
+        console.warn('   Full data:', JSON.stringify(data).substring(0, 200));
         return;
     }
 
