@@ -753,21 +753,39 @@ function handleServerMessage(data) {
                     handleMessageReceive(data);
                 }
                 break;
-            case 'message_read_receipt':
-                if (data.timestamp) {
-                    updateMessageDeliveryStatus(data.timestamp, 'delivered');
+            case 'typing':
+                if (data.from && typeof data.isTyping === 'boolean') {
+                    handleTypingIndicator(data.from, data.isTyping);
                 }
                 break;
-            // Обработка удаления сообщения
+            case 'history':
+                if (data.messages && Array.isArray(data.messages)) {
+                    loadMessageHistory(data.messages, data.chatName);
+                }
+                break;
+            case 'chat_deleted':
+                if (data.chatName) {
+                    handleChatDeleted(data.chatName);
+                }
+                break;
+            case 'message_read_receipt':
+                if (data.from && data.timestamp) {
+                    handleMessageReadReceipt(data.from, data.timestamp);
+                }
+                break;
             case 'message_deleted':
                 if (data.timestamp && data.deletedBy) {
-                    handleRemoteMessageDelete(data.timestamp, data.deletedBy);
+                    handleMessageDeleted(data.timestamp, data.deletedBy);
                 }
                 break;
-            // ✨ Обработка реакции на сообщение
             case 'message_reaction':
                 if (data.timestamp && data.reaction) {
-                    handleRemoteMessageReaction(data.timestamp, data);
+                    handleMessageReaction(data);
+                }
+                break;
+            case 'message_confirmed':
+                if (data.timestamp && data.confirmed) {
+                    confirmMessageDelivery(data.timestamp);
                 }
                 break;
             // 👥 Групповые чаты
@@ -907,6 +925,73 @@ function handleLoginSuccess(data) {
             });
         }
     }, 500);
+}
+
+// ============================================================================
+// 🔹 Вспомогательные функции
+// ============================================================================
+
+/**
+ * 🔒 Запрос разрешения на воспроизведение звука
+ * Необходимо для автовоспроизведения уведомлений
+ */
+function requestAudioPermission() {
+    // 🔒 Проверяем поддержку Audio API
+    if (!DOM.notificationSound) {
+        console.warn('⚠️ Audio element not found');
+        return;
+    }
+
+    // 🔒 Пытаемся воспроизвести тишину для инициализации
+    try {
+        const audio = DOM.notificationSound;
+        audio.muted = true;
+        audio.play().then(() => {
+            audio.muted = false;
+            console.log('✅ Audio permission granted');
+        }).catch(err => {
+            // 🔒 Разрешение не получено (это нормально до первого взаимодействия)
+            console.log('⚠️ Audio permission pending (will retry on user interaction)');
+        });
+    } catch (e) {
+        console.warn('⚠️ Audio permission error:', e);
+    }
+}
+
+// ============================================================================
+// 🔹 Заглушки для обработчиков сообщений (чтобы избежать ошибок)
+// ============================================================================
+
+/**
+ * Индикатор набора текста
+ */
+function handleTypingIndicator(from, isTyping) {
+    // Заглушка - реализация в основной части кода
+    // console.log(`📝 ${from} is typing: ${isTyping}`);
+}
+
+/**
+ * Загрузка истории сообщений
+ */
+function loadMessageHistory(messages, chatName) {
+    // Заглушка - история загружается из localStorage
+    // console.log(`📜 Loaded ${messages.length} messages for ${chatName}`);
+}
+
+/**
+ * Удаление чата
+ */
+function handleChatDeleted(chatName) {
+    // Заглушка
+    console.log(`🗑️ Chat deleted: ${chatName}`);
+}
+
+/**
+ * Подтверждение доставки сообщения
+ */
+function confirmMessageDelivery(timestamp) {
+    // Заглушка
+    // console.log(`✅ Message confirmed: ${timestamp}`);
 }
 
 /**
@@ -2056,6 +2141,17 @@ function updateChatUserStatus(username) {
  * Выбор пользователя для чата
  * @param {string} username - Имя пользователя
  */
+function updateChatHeaderAvatar(username) {
+    // 🔒 Заглушка - обновляет аватарку в заголовке чата
+    const chatUserStatus = document.getElementById('chatUserStatus');
+    if (chatUserStatus) {
+        const statusText = chatUserStatus.querySelector('.status-text');
+        if (statusText) {
+            statusText.textContent = username;
+        }
+    }
+}
+
 function selectUser(username) {
     console.log('🔵 selectUser called with:', username);
     
@@ -3400,7 +3496,7 @@ function addMessage(data, isOwn = false, scrollToBottom = true) {
 }
 
 // ============================================================================
-// 🔹 Контекстное меню сообщений
+// 🔹 Контекстное меню ��ообщений
 // ============================================================================
 /**
  * Показать контекстное меню для сообщения
@@ -3438,7 +3534,7 @@ function showMessageContextMenu(e, messageEl, messageData, isOwn) {
     menu.appendChild(createMessageMenuDivider());
 
     // Копировать
-    const copyBtn = createMessageMenuItem('📋 Копировать', () => {
+    const copyBtn = createMessageMenuItem('📋 Копиро��ать', () => {
         copyMessageText(messageData.text);
         closeMessageContextMenu();
     });

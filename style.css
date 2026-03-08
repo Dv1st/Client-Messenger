@@ -496,7 +496,7 @@ body.font-large { font-size: 16px; }
     color: white;
     font-size: 10px;
     cursor: pointer;
-    z-index: 101;
+    z-index: 10;
     display: none; /* Скрыта на мобильных по умолчанию */
     align-items: center;
     justify-content: center;
@@ -506,7 +506,7 @@ body.font-large { font-size: 16px; }
 
 .sidebar-toggle:hover {
     background: var(--accent-hover);
-    right: -12px;
+    right: -14px;
 }
 
 /* Поиск - обновлённый стиль */
