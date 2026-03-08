@@ -158,7 +158,9 @@ function initDOM() {
         'profileUserName', 'profileUserStatus', 'avatarContainer', 'avatarFileInput',
         'badgesGrid', 'editPanel', 'saveProfileBtn', 'cancelProfileBtn', 'avatarUrlInput',
         'applyAvatarUrlBtn', 'badgeVisibilityList', 'profileActionsSection', 'sendMessageBtn',
-        'profileStatusMessage'
+        'profileStatusMessage',
+        // ⋮ Меню чата
+        'chatMenuBtn', 'chatMenuDropdown', 'deleteChatBtn'
     ];
 
     ids.forEach(id => {
@@ -756,7 +758,7 @@ function handleServerMessage(data) {
                 break;
             case 'history':
                 if (data.messages && Array.isArray(data.messages)) {
-                    loadMessageHistory(data.messages, data.chatName);
+                    loadMessageHistory(data.messages, data.chatName, data.groupId);
                 }
                 break;
             case 'chat_deleted':
@@ -984,9 +986,39 @@ function handleTypingIndicator(from, isTyping) {
 /**
  * Загрузка истории сообщений
  */
-function loadMessageHistory(messages, chatName) {
-    // Заглушка - история загружается из localStorage
-    // console.log(`📜 Loaded ${messages.length} messages for ${chatName}`);
+function loadMessageHistory(messages, chatName, groupId) {
+    if (!messages || !Array.isArray(messages)) return;
+
+    console.log(`📜 Loaded ${messages.length} messages for ${chatName || groupId}`);
+
+    if (!DOM.messagesList) return;
+
+    // Очищаем список
+    DOM.messagesList.innerHTML = '';
+
+    if (messages.length > 0) {
+        const fragment = document.createDocumentFragment();
+        messages.forEach(msg => {
+            const isOwn = msg.sender === currentUser;
+            
+            // Исправляем статус доставки для загруженных сообщений
+            if (!isOwn && msg.deliveryStatus === 'pending') {
+                msg.deliveryStatus = 'delivered';
+            }
+            if (isOwn && msg.deliveryStatus === 'pending') {
+                const msgAge = Date.now() - msg.timestamp;
+                if (msgAge > 5000) {
+                    msg.deliveryStatus = 'sent';
+                }
+            }
+
+            const msgEl = createMessageElement(msg, isOwn);
+            if (msgEl) fragment.appendChild(msgEl);
+        });
+        DOM.messagesList.appendChild(fragment);
+        DOM.messagesList.scrollTop = DOM.messagesList.scrollHeight;
+        console.log(`📜 ${messages.length} messages rendered`);
+    }
 }
 
 /**
@@ -1605,6 +1637,16 @@ function updateUsersList(serverUsers) {
             }
         });
 
+        // 🔐 УДАЛЯЕМ пользователей, которых нет на сервере
+        users = users.filter(user => {
+            if (!serverUserNames.has(user.name)) {
+                console.log(`🗑️ Removing user "${user.name}" - not on server`);
+                return false;
+            }
+            return true;
+        });
+
+        // Обновляем существующих пользователей
         users.forEach(user => {
             if (serverUserNames.has(user.name)) {
                 const serverUser = serverUsers.find(u => (u.username || u.name) === user.name);
@@ -1669,7 +1711,7 @@ function updateUserStatus(username, status, activeChat = null) {
 
         // 🔒 Если пользователь offline и был в чате с кем-то, обновляем activeChat
         if (status === 'offline' && activeChat === null) {
-            // Находим всех пользователей, у кого activeChat === username и сбрасыв��ем
+            // Находим вс����������������х пользователей, у кого activeChat === username и сбрасыв��ем
             users.forEach(u => {
                 if (u.activeChat === username) {
                     u.activeChat = null;
@@ -2133,6 +2175,11 @@ function updateChatUserStatus(username) {
         };
         statusDot.style.background = statusColors[statusClass] || 'var(--status-offline)';
     }
+
+    // Показываем кнопку меню чата
+    if (DOM.chatMenuBtn) {
+        DOM.chatMenuBtn.classList.remove('hidden');
+    }
 }
 
 /**
@@ -2152,7 +2199,7 @@ function updateChatHeaderAvatar(username) {
 
 function selectUser(username) {
     console.log('🔵 selectUser called with:', username);
-    
+
     if (!username) {
         console.warn('⚠️ selectUser: empty username');
         return;
@@ -2194,37 +2241,17 @@ function selectUser(username) {
         DOM.messagesList.innerHTML = '';
         console.log('🔵 messagesList cleared');
 
-        const messages = loadMessagesFromStorage(username);
-        console.log('🔵 Loaded messages:', messages?.length || 0);
-        
-        if (messages && messages.length > 0) {
-            const fragment = document.createDocumentFragment();
-            messages.forEach(msg => {
-                // Исправляем статус доставки для загруженных сообщений
-                // Если сообщение не наше и статус pending, меняем на delivered
-                if (msg.sender !== currentUser && msg.deliveryStatus === 'pending') {
-                    msg.deliveryStatus = 'delivered';
-                }
-                // Если наше сообщение со статусом pending и прошло больше 5 секунд, меняем на sent
-                if (msg.sender === currentUser && msg.deliveryStatus === 'pending') {
-                    const msgAge = Date.now() - msg.timestamp;
-                    if (msgAge > 5000) {
-                        msg.deliveryStatus = 'sent';
-                    }
-                }
-
-                const msgEl = createMessageElement(msg, msg.sender === currentUser);
-                if (msgEl) fragment.appendChild(msgEl);
-            });
-            DOM.messagesList.appendChild(fragment);
-            DOM.messagesList.scrollTop = DOM.messagesList.scrollHeight;
-            console.log('🔵 Messages rendered');
-        }
+        // 🔐 Загружаем сообщения с сервера
+        sendToServer({
+            type: 'get_history',
+            chatName: username,
+            limit: 100
+        });
     }
 
     setInputPanelVisible(true);
     console.log('🔵 Input panel shown');
-    
+
     // Обновляем статус собеседника (не текущего пользователя!)
     updateChatUserStatus(username);
     checkMobileView();
@@ -2258,6 +2285,13 @@ function showGeneralChat() {
     }
 
     DOM.chatUserStatus?.classList.add('hidden');
+    
+    // Скрываем кнопку меню чата
+    if (DOM.chatMenuBtn) {
+        DOM.chatMenuBtn.classList.add('hidden');
+    }
+    closeChatMenu();
+    
     checkMobileView();
 
     sendToServer({ type: 'chat_open', chatWith: null });
@@ -2343,20 +2377,22 @@ function selectGroup(groupId) {
     if (DOM.messagesList) {
         DOM.messagesList.innerHTML = '';
 
-        const messages = loadGroupMessagesFromStorage(groupId);
-        if (messages && messages.length > 0) {
-            const fragment = document.createDocumentFragment();
-            messages.forEach(msg => {
-                const msgEl = createMessageElement(msg, msg.sender === currentUser);
-                if (msgEl) fragment.appendChild(msgEl);
-            });
-            DOM.messagesList.appendChild(fragment);
-            DOM.messagesList.scrollTop = DOM.messagesList.scrollHeight;
-        }
+        // 🔐 Загружаем сообщения группы с сервера
+        sendToServer({
+            type: 'get_history',
+            groupId: groupId,
+            limit: 100
+        });
     }
 
     setInputPanelVisible(true);
     DOM.chatUserStatus?.classList.add('hidden');
+    
+    // Показываем кнопку меню чата для групп
+    if (DOM.chatMenuBtn) {
+        DOM.chatMenuBtn.classList.remove('hidden');
+    }
+    
     checkMobileView();
     updateScrollButton();
 
@@ -3457,7 +3493,7 @@ function addMessage(data, isOwn = false, scrollToBottom = true) {
  * @param {MouseEvent} e - Событие мыши
  * @param {HTMLElement} messageEl - Элемент сообщения
  * @param {Object} messageData - Данные сообщения
- * @param {boolean} isOwn - Своё ли сообщение
+ * @param {boolean} isOwn - С��оё ли сообщение
  */
 function showMessageContextMenu(e, messageEl, messageData, isOwn) {
     // Закрываем предыдущее меню
@@ -3470,7 +3506,7 @@ function showMessageContextMenu(e, messageEl, messageData, isOwn) {
     menu.className = 'message-context-menu';
     menu.id = 'messageContextMenu';
 
-    // Позиционирование меню
+    // Поз��ционирование меню
     const menuWidth = 200;
     const menuHeight = 180;
     const left = Math.min(e.pageX, window.innerWidth - menuWidth - 10);
@@ -4431,6 +4467,151 @@ function initProfile() {
                 closeProfile();
             }
         });
+    }
+
+    // ⋮ Меню чата - открытие/закрытие
+    if (DOM.chatMenuBtn) {
+        DOM.chatMenuBtn.addEventListener('click', toggleChatMenu);
+    }
+
+    // Удаление чата
+    if (DOM.deleteChatBtn) {
+        DOM.deleteChatBtn.addEventListener('click', () => {
+            deleteCurrentChat();
+            closeChatMenu();
+        });
+    }
+
+    // Закрытие меню при клике вне его
+    document.addEventListener('click', (e) => {
+        if (DOM.chatMenuDropdown && !DOM.chatMenuDropdown.classList.contains('hidden')) {
+            const isClickInsideMenu = DOM.chatMenuDropdown.contains(e.target);
+            const isClickOnButton = DOM.chatMenuBtn && DOM.chatMenuBtn.contains(e.target);
+            if (!isClickInsideMenu && !isClickOnButton) {
+                closeChatMenu();
+            }
+        }
+    });
+}
+
+/**
+ * ⋮ Меню чата - открыть/закрыть
+ */
+function toggleChatMenu() {
+    if (!DOM.chatMenuDropdown) return;
+    
+    const isHidden = DOM.chatMenuDropdown.classList.contains('hidden');
+    if (isHidden) {
+        openChatMenu();
+    } else {
+        closeChatMenu();
+    }
+}
+
+/**
+ * ⋮ Открыть меню чата
+ */
+function openChatMenu() {
+    if (!DOM.chatMenuDropdown || !DOM.chatMenuBtn) return;
+    
+    DOM.chatMenuDropdown.classList.remove('hidden');
+    DOM.chatMenuBtn.setAttribute('aria-expanded', 'true');
+}
+
+/**
+ * ⋮ Закрыть меню чата
+ */
+function closeChatMenu() {
+    if (!DOM.chatMenuDropdown || !DOM.chatMenuBtn) return;
+    
+    DOM.chatMenuDropdown.classList.add('hidden');
+    DOM.chatMenuBtn.setAttribute('aria-expanded', 'false');
+}
+
+/**
+ * 🗑️ Удалить текущий чат
+ */
+function deleteCurrentChat() {
+    if (!selectedUser && !selectedGroup) {
+        console.warn('⚠️ Нет активного чата для удаления');
+        return;
+    }
+
+    const chatName = selectedUser || (selectedGroup ? groups.find(g => g.id === selectedGroup)?.name : '');
+    const chatType = selectedUser ? 'personal' : 'group';
+
+    if (!confirm(`Вы уверены, что хотите удалить ${chatType === 'personal' ? 'чат с пользователем' : 'группу'} "${chatName}"?\n\nЭто действие нельзя отменить.`)) {
+        return;
+    }
+
+    try {
+        if (selectedUser) {
+            // Удаление личного чата
+            const messagesKey = `messages_${currentUser}_${selectedUser}`;
+            localStorage.removeItem(messagesKey);
+            
+            // Удаляем из активных чатов
+            const activeChatsKey = `active_chats_${currentUser}`;
+            const activeChats = JSON.parse(localStorage.getItem(activeChatsKey) || '[]');
+            const updatedChats = activeChats.filter(chat => chat.userId !== selectedUser);
+            localStorage.setItem(activeChatsKey, JSON.stringify(updatedChats));
+
+            console.log(`✅ Личный чат с ${selectedUser} удалён`);
+        } else if (selectedGroup) {
+            // Удаление группы (только если пользователь создатель)
+            const group = groups.find(g => g.id === selectedGroup);
+            if (group && group.creator === currentUser) {
+                const messagesKey = `group_messages_${selectedGroup}`;
+                localStorage.removeItem(messagesKey);
+                
+                // Удаляем группу из списка
+                groups = groups.filter(g => g.id !== selectedGroup);
+                
+                // Отправляем уведомление участникам
+                sendToServer({
+                    type: 'delete_group',
+                    group_id: selectedGroup,
+                    user_id: currentUser
+                });
+
+                console.log(`✅ Группа "${group.name}" удалена`);
+            } else {
+                alert('Только создатель может удалить группу');
+                return;
+            }
+        }
+
+        // Очищаем текущий чат
+        selectedUser = null;
+        selectedGroup = null;
+        
+        // Обновляем интерфейс
+        if (DOM.messagesList) {
+            DOM.messagesList.innerHTML = '';
+            DOM.messagesList.classList.add('hidden');
+        }
+        if (DOM.chatPlaceholder) {
+            DOM.chatPlaceholder.classList.remove('hidden');
+        }
+        if (DOM.inputPanel) {
+            DOM.inputPanel.classList.add('hidden');
+        }
+        if (DOM.chatUserStatus) {
+            DOM.chatUserStatus.classList.add('hidden');
+        }
+        if (DOM.chatTitle) {
+            DOM.chatTitle.textContent = 'Чат';
+        }
+
+        // Обновляем sidebar
+        if (window.sidebarComponent) {
+            window.sidebarComponent.updateChats([]);
+        }
+
+        closeChatMenu();
+    } catch (e) {
+        console.error('❌ deleteCurrentChat error:', e);
+        alert('Произошла ошибка при удалении чата');
     }
 }
 

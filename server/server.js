@@ -1085,7 +1085,7 @@ function validateFiles(files) {
     return validFiles.length > 0 ? validFiles : null;
 }
 
-function handleMessage(ws, sender, { text, privateTo, timestamp, encrypted, hint, replyTo, files }) {
+function handleMessage(ws, sender, { text, privateTo, timestamp, encrypted, hint, replyTo, files, groupId }) {
     // 🔒 Строгая валидация типа sender
     if (!sender || typeof sender !== 'string' || sender.length > USERNAME_MAX_LENGTH) {
         console.warn(`🚫 Invalid sender from ${getClientIp(ws)}`);
@@ -1153,6 +1153,25 @@ function handleMessage(ws, sender, { text, privateTo, timestamp, encrypted, hint
         files: validFiles
     };
 
+    // 🔐 Сохраняем сообщение в базу данных
+    const saveMessageToDb = async () => {
+        try {
+            await db.saveMessage(
+                sender,
+                privateTo || null,
+                groupId || null,
+                trimmedText,
+                hint || null,
+                replyTo || null,
+                validFiles || [],
+                message.timestamp,
+                encrypted || false
+            );
+        } catch (err) {
+            console.error('❌ saveMessage error:', err);
+        }
+    };
+
     try {
         if (privateTo && typeof privateTo === 'string') {
             if (privateTo.length > USERNAME_MAX_LENGTH) {
@@ -1182,6 +1201,20 @@ function handleMessage(ws, sender, { text, privateTo, timestamp, encrypted, hint
                 replyTo: replyTo || null,
                 files: validFiles
             }));
+
+            // Сохраняем в БД асинхронно
+            saveMessageToDb();
+        } else if (groupId) {
+            // Сообщение группы
+            message.groupId = groupId;
+            broadcast({
+                ...message,
+                type: 'receive_group_message',
+                groupId
+            });
+
+            // Сохраняем в БД асинхронно
+            saveMessageToDb();
         } else {
             broadcast(message, ws);
         }
@@ -1204,8 +1237,33 @@ function handleTyping(ws, from, { to, isTyping }) {
     }
 }
 
-function handleGetHistory(ws, username, { chatName }) {
-    ws.send(JSON.stringify({ type: 'history', messages: [], chatName: chatName || 'general' }));
+async function handleGetHistory(ws, username, { chatName, groupId, limit = 100 }) {
+    try {
+        let messages = [];
+
+        if (groupId) {
+            // Загрузка сообщений группы
+            messages = await db.loadGroupMessages(groupId, limit);
+        } else if (chatName) {
+            // Загрузка личных сообщений
+            messages = await db.loadMessagesBetweenUsers(username, chatName, limit);
+        }
+
+        ws.send(JSON.stringify({
+            type: 'history',
+            messages: messages,
+            chatName: chatName || 'general',
+            groupId: groupId || null
+        }));
+    } catch (err) {
+        console.error('❌ handleGetHistory error:', err);
+        ws.send(JSON.stringify({
+            type: 'history',
+            messages: [],
+            chatName: chatName || 'general',
+            error: 'Ошибка загрузки истории'
+        }));
+    }
 }
 
 function handleDeleteChat(ws, username, { chatName }) {
@@ -1719,7 +1777,7 @@ function handleRemoveMemberFromGroup(ws, username, { groupId, member }) {
 function handleGroupMessage(ws, sender, { groupId, text, timestamp, encrypted, hint, replyTo, files }) {
     const user = users.get(sender);
     if (!user) {
-        return ws.send(JSON.stringify({ type: 'error', message: 'Требуется авторизация' }));
+        return ws.send(JSON.stringify({ type: 'error', message: 'Требуется авториз����ция' }));
     }
 
     const group = groups.get(groupId);
@@ -2034,7 +2092,10 @@ wss.on('connection', (ws, req) => {
                 if (session) handleGetGroups(ws, username);
                 break;
             case 'get_history':
-                if (session) handleGetHistory(ws, username, data);
+                if (session) handleGetHistory(ws, username, data).catch(err => {
+                    console.error('❌ get_history error:', err);
+                    ws.send(JSON.stringify({ type: 'error', message: 'Ошибка загрузки истории' }));
+                });
                 break;
             case 'delete_chat':
                 if (session) handleDeleteChat(ws, username, data);

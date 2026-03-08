@@ -47,6 +47,7 @@ class SidebarComponent {
             chatsList: null,
             footerUserName: null,
             footerUserStatus: null,
+            footerUserStatusIndicator: null,
             footerUserInitials: null,
             footerUserAvatar: null,
             footerSettingsBtn: null,
@@ -99,6 +100,7 @@ class SidebarComponent {
         this.dom.chatsList = document.getElementById('chatsList');
         this.dom.footerUserName = document.getElementById('footerUserName');
         this.dom.footerUserStatus = document.getElementById('footerUserStatus');
+        this.dom.footerUserStatusIndicator = document.getElementById('footerUserStatusIndicator');
         this.dom.footerUserInitials = document.getElementById('footerUserInitials');
         this.dom.footerUserAvatar = document.getElementById('footerUserAvatar');
         this.dom.footerSettingsBtn = document.getElementById('footerSettingsBtn');
@@ -173,8 +175,8 @@ class SidebarComponent {
             if (this.dom.footerUserName) {
                 this.dom.footerUserName.textContent = 'Гость';
             }
-            if (this.dom.footerUserStatus) {
-                this.dom.footerUserStatus.textContent = '';
+            if (this.dom.footerUserStatusIndicator) {
+                this.dom.footerUserStatusIndicator.className = 'status-indicator offline';
             }
             if (this.dom.footerUserInitials) {
                 this.dom.footerUserInitials.textContent = 'G';
@@ -186,8 +188,8 @@ class SidebarComponent {
             this.dom.footerUserName.textContent = currentUser.displayName || currentUser.username;
         }
 
-        if (this.dom.footerUserStatus) {
-            this.dom.footerUserStatus.textContent = 'Онлайн';
+        if (this.dom.footerUserStatusIndicator) {
+            this.dom.footerUserStatusIndicator.className = 'status-indicator online';
         }
 
         if (this.dom.footerUserInitials) {
@@ -195,7 +197,7 @@ class SidebarComponent {
         }
 
         if (this.dom.footerUserAvatar && currentUser.avatar) {
-            this.dom.footerUserAvatar.innerHTML = `<img src="${escapeHtml(currentUser.avatar)}" alt="Аватар">`;
+            this.dom.footerUserAvatar.innerHTML = `<img src="${escapeHtml(currentUser.avatar)}" alt="Аватар"><span class="status-indicator online"></span>`;
         }
     }
 

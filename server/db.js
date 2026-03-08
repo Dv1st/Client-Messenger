@@ -77,6 +77,49 @@ async function initializeDatabase() {
       )
     `);
 
+    // 🔐 Таблица зашифрованных сообщений
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS messages (
+        id SERIAL PRIMARY KEY,
+        sender_username TEXT NOT NULL,
+        recipient_username TEXT,
+        group_id TEXT,
+        encrypted_content TEXT NOT NULL,
+        encryption_hint TEXT,
+        reply_to_id INTEGER,
+        files_data JSONB DEFAULT '[]'::jsonb,
+        created_at BIGINT NOT NULL,
+        is_encrypted BOOLEAN DEFAULT TRUE,
+        FOREIGN KEY (sender_username) REFERENCES users(username) ON DELETE CASCADE,
+        FOREIGN KEY (recipient_username) REFERENCES users(username) ON DELETE CASCADE,
+        FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE
+      )
+    `);
+
+    // Индексы для производительности сообщений
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_messages_sender
+      ON messages(sender_username)
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_messages_recipient
+      ON messages(recipient_username)
+      WHERE recipient_username IS NOT NULL
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_messages_group
+      ON messages(group_id)
+      WHERE group_id IS NOT NULL
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_messages_created_at
+      ON messages(created_at DESC)
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_messages_conversation
+      ON messages(sender_username, recipient_username, created_at DESC)
+    `);
+
     // Индексы для производительности
     await client.query(`
       CREATE INDEX IF NOT EXISTS idx_group_members_group_id 
@@ -233,6 +276,91 @@ async function deleteGroup(groupId) {
 }
 
 /**
+ * Сохранение сообщения в базу данных
+ * 🔒 Параметризованный запрос
+ */
+async function saveMessage(senderUsername, recipientUsername, groupId, encryptedContent, encryptionHint, replyToId, filesData, createdAt, isEncrypted) {
+  const result = await pool.query(
+    `INSERT INTO messages 
+     (sender_username, recipient_username, group_id, encrypted_content, encryption_hint, reply_to_id, files_data, created_at, is_encrypted)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+     RETURNING id`,
+    [
+      senderUsername,
+      recipientUsername || null,
+      groupId || null,
+      encryptedContent,
+      encryptionHint || null,
+      replyToId || null,
+      JSON.stringify(filesData || []),
+      createdAt,
+      isEncrypted !== false
+    ]
+  );
+  return result.rows[0]?.id;
+}
+
+/**
+ * Загрузка сообщений между пользователями
+ * @param {string} user1 - Первый пользователь
+ * @param {string} user2 - Второй пользователь
+ * @param {number} limit - Максимальное количество сообщений
+ * @returns {Promise<Array>}
+ */
+async function loadMessagesBetweenUsers(user1, user2, limit = 100) {
+  const result = await pool.query(
+    `SELECT id, sender_username, recipient_username, encrypted_content, encryption_hint, 
+            reply_to_id, files_data, created_at, is_encrypted
+     FROM messages
+     WHERE ((sender_username = $1 AND recipient_username = $2) OR
+            (sender_username = $2 AND recipient_username = $1))
+     ORDER BY created_at DESC
+     LIMIT $3`,
+    [user1, user2, limit]
+  );
+  return result.rows.map(row => ({
+    id: row.id,
+    sender: row.sender_username,
+    privateTo: row.recipient_username,
+    text: row.encrypted_content,
+    encrypted: row.is_encrypted,
+    hint: row.encryption_hint,
+    replyTo: row.reply_to_id,
+    files: row.files_data || [],
+    timestamp: row.created_at
+  })).reverse();
+}
+
+/**
+ * Загрузка сообщений группы
+ * @param {string} groupId - ID группы
+ * @param {number} limit - Максимальное количество сообщений
+ * @returns {Promise<Array>}
+ */
+async function loadGroupMessages(groupId, limit = 100) {
+  const result = await pool.query(
+    `SELECT id, sender_username, group_id, encrypted_content, encryption_hint,
+            reply_to_id, files_data, created_at, is_encrypted
+     FROM messages
+     WHERE group_id = $1
+     ORDER BY created_at DESC
+     LIMIT $2`,
+    [groupId, limit]
+  );
+  return result.rows.map(row => ({
+    id: row.id,
+    sender: row.sender_username,
+    group: row.group_id,
+    text: row.encrypted_content,
+    encrypted: row.is_encrypted,
+    hint: row.encryption_hint,
+    replyTo: row.reply_to_id,
+    files: row.files_data || [],
+    timestamp: row.created_at
+  })).reverse();
+}
+
+/**
  * Проверка подключения к БД
  */
 async function testConnection() {
@@ -255,5 +383,8 @@ module.exports = {
   saveGroup,
   saveGroupMembers,
   deleteGroup,
+  saveMessage,
+  loadMessagesBetweenUsers,
+  loadGroupMessages,
   testConnection
 };

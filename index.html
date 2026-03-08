@@ -125,10 +125,10 @@
                     <div class="current-user-card">
                         <div class="user-avatar-small" id="footerUserAvatar" aria-hidden="true">
                             <span class="avatar-initials" id="footerUserInitials">U</span>
+                            <span class="status-indicator online" id="footerUserStatusIndicator" aria-label="Статус: онлайн"></span>
                         </div>
                         <div class="user-info">
                             <span class="user-name" id="footerUserName">Пользователь</span>
-                            <span class="user-status-text" id="footerUserStatus">Онлайн</span>
                         </div>
                     </div>
                     <div class="footer-actions">
@@ -159,6 +159,19 @@
                         <span class="status-dot" aria-hidden="true"></span>
                         <span class="status-text"></span>
                     </span>
+
+                    <!-- Кнопка меню чата -->
+                    <button class="chat-menu-btn" id="chatMenuBtn" type="button" title="Меню чата" aria-label="Меню чата" aria-haspopup="true" aria-expanded="false">
+                        <span aria-hidden="true">⋮</span>
+                    </button>
+
+                    <!-- Выпадающее меню чата -->
+                    <div class="chat-menu-dropdown hidden" id="chatMenuDropdown" role="menu" aria-label="Меню чата">
+                        <button class="chat-menu-item" id="deleteChatBtn" type="button" role="menuitem">
+                            <span class="chat-menu-item-icon" aria-hidden="true">🗑️</span>
+                            <span>Удалить чат</span>
+                        </button>
+                    </div>
                 </header>
 
                 <!-- Заглушка (когда чат не выбран) -->
