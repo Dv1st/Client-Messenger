@@ -57,6 +57,11 @@
                     <input type="password" id="regConfirmPassword" placeholder="Подтвердите пароль" autocomplete="new-password" inputmode="text">
                 </div>
                 <button id="registerBtn" class="btn-primary" type="button" disabled>Зарегистрироваться</button>
+                
+                <!-- Кнопка о разработчике -->
+                <button id="aboutDeveloperBtn" class="about-developer-btn" type="button" title="О разработчике" aria-label="О разработчике">
+                    ℹ️ О разработчике
+                </button>
             </div>
 
             <div id="loginStatus" class="status-message" role="alert" aria-live="polite"></div>
@@ -80,19 +85,7 @@
 
                 <!-- 🔝 ОСНОВНАЯ ОБЛАСТЬ (над нижней зоной) -->
                 <div class="sidebar-main-content">
-                    <!-- 1. Профиль пользователя (закреплен сверху) -->
-                    <header class="sidebar-profile">
-                        <div class="current-user">
-                            <span class="user-icon" aria-hidden="true">👤</span>
-                            <span class="user-label" id="currentUserLabel">Пользователь</span>
-                        </div>
-                        <div class="profile-actions">
-                            <button id="settingsBtn" class="settings-btn" type="button" title="Настройки" aria-label="Настройки">⚙️</button>
-                            <button id="profileBtn" class="profile-btn" type="button" title="Профиль" aria-label="Открыть профиль">👤</button>
-                        </div>
-                    </header>
-
-                    <!-- 2. Поиск -->
+                    <!-- 1. Поиск -->
                     <div class="search-container">
                         <div class="search-box">
                             <span class="search-icon" aria-hidden="true">🔍</span>
@@ -101,7 +94,7 @@
                         </div>
                     </div>
 
-                    <!-- 3. Контейнер для результатов поиска (глобальный каталог) -->
+                    <!-- 2. Контейнер для результатов поиска (глобальный каталог) -->
                     <div class="search-results-container hidden" id="searchResultsContainer" role="list" aria-label="Результаты поиска" aria-live="polite">
                         <div class="search-results-header">
                             <span class="section-title">🌐 Пользователи</span>
@@ -109,7 +102,7 @@
                         <div class="search-results-list" id="searchResultsList"></div>
                     </div>
 
-                    <!-- 4. Список активных чатов (скрывается при фокусе на поиске) -->
+                    <!-- 3. Список активных чатов (скрывается при фокусе на поиске) -->
                     <div class="chats-container" id="chatsContainer">
                         <!-- Общий список чатов и групп -->
                         <div class="chats-section">
@@ -320,6 +313,13 @@
                 <!-- Выход -->
                 <section class="settings-section">
                     <button id="logoutBtn" class="btn-logout" type="button">🚪 Выйти</button>
+                </section>
+
+                <!-- О разработчике -->
+                <section class="settings-section">
+                    <button id="aboutDeveloperSettingsBtn" class="about-developer-btn" type="button" title="О разработчике" aria-label="О разработчике">
+                        ℹ️ О разработчике
+                    </button>
                 </section>
             </div>
         </div>
@@ -611,6 +611,32 @@
                 </div>
 
                 <div id="twoFactorMessage" class="status-message" role="alert" aria-live="polite"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ℹ️ Модальное окно о разработчике -->
+    <div id="aboutDeveloperModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="aboutDeveloperTitle">
+        <div class="modal-content modal-content-small">
+            <header class="modal-header">
+                <h2 id="aboutDeveloperTitle">ℹ️ О разработчике</h2>
+                <button class="modal-close" id="closeAboutDeveloper" type="button" aria-label="Закрыть">&times;</button>
+            </header>
+            <div class="modal-body about-developer-body">
+                <div class="developer-info">
+                    <div class="developer-avatar">
+                        <span aria-hidden="true">👨‍💻</span>
+                    </div>
+                    <h3 class="developer-name">Арсений Шляков</h3>
+                    <p class="developer-description">
+                        Единственный разработчик проекта Client Messenger.
+                        <br>Никто больше не имеет причастия к созданию этого проекта.
+                    </p>
+                    <div class="developer-badge">
+                        <span class="badge-icon">🏆</span>
+                        <span>Lead Developer & Founder</span>
+                    </div>
+                </div>
             </div>
         </div>
     </div>

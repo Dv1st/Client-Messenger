@@ -299,10 +299,34 @@ function initLogin() {
     const regUsernameInput = document.getElementById('regUsername');
     const regPasswordInput = document.getElementById('regPassword');
     const regConfirmInput = document.getElementById('regConfirmPassword');
+    const aboutDeveloperBtn = document.getElementById('aboutDeveloperBtn');
+    const aboutDeveloperModal = document.getElementById('aboutDeveloperModal');
+    const closeAboutDeveloper = document.getElementById('closeAboutDeveloper');
 
     if (loginBtn) loginBtn.addEventListener('click', handleLogin);
     if (registerBtn) registerBtn.addEventListener('click', handleRegister);
-    
+
+    // ℹ️ Кнопка о разработчике на панели регистрации
+    if (aboutDeveloperBtn && aboutDeveloperModal) {
+        aboutDeveloperBtn.addEventListener('click', () => {
+            aboutDeveloperModal.classList.remove('hidden');
+        });
+    }
+
+    if (closeAboutDeveloper && aboutDeveloperModal) {
+        closeAboutDeveloper.addEventListener('click', () => {
+            aboutDeveloperModal.classList.add('hidden');
+        });
+    }
+
+    if (aboutDeveloperModal) {
+        aboutDeveloperModal.addEventListener('click', (e) => {
+            if (e.target === aboutDeveloperModal) {
+                aboutDeveloperModal.classList.add('hidden');
+            }
+        });
+    }
+
     // 🔒 Валидация в реальном времени для формы регистрации
     if (regUsernameInput && regPasswordInput && regConfirmInput) {
         [regUsernameInput, regPasswordInput, regConfirmInput].forEach(input => {
@@ -634,6 +658,16 @@ function handleServerMessage(data) {
                         DOM.currentUserLabel.textContent = currentUser;
                     }
 
+                    // Обновляем footer sidebar
+                    const footerUserName = document.getElementById('footerUserName');
+                    const footerUserInitials = document.getElementById('footerUserInitials');
+                    if (footerUserName) {
+                        footerUserName.textContent = currentUser;
+                    }
+                    if (footerUserInitials) {
+                        footerUserInitials.textContent = currentUser.slice(0, 2).toUpperCase();
+                    }
+
                     console.log('✅ Registered and logged in:', currentUser);
                     sendToServer({ type: 'get_users' });
                     sendToServer({ type: 'get_groups' });
@@ -824,6 +858,16 @@ function handleLoginSuccess(data) {
 
     if (DOM.currentUserLabel) {
         DOM.currentUserLabel.textContent = currentUser;
+    }
+
+    // Обновляем footer sidebar
+    const footerUserName = document.getElementById('footerUserName');
+    const footerUserInitials = document.getElementById('footerUserInitials');
+    if (footerUserName) {
+        footerUserName.textContent = currentUser;
+    }
+    if (footerUserInitials) {
+        footerUserInitials.textContent = currentUser.slice(0, 2).toUpperCase();
     }
 
     console.log('✅ Connected:', currentUser);
@@ -1205,17 +1249,25 @@ function initSidebar() {
 
         // Callbacks
         onChatSelect: (chat) => {
-            console.log('Chat selected:', chat);
-            // Здесь можно добавить логику выбора чата
-            if (chat.type === 'personal') {
-                // selectUser(chat.userId);
+            console.log('📋 Chat selected:', chat);
+            // Логика выбора чата
+            if (chat.type === 'personal' && chat.userId) {
+                console.log('🔵 Opening personal chat with:', chat.userId);
+                selectUser(chat.userId);
+            } else if (chat.type === 'group' && chat.groupId) {
+                console.log('🔵 Opening group chat:', chat.groupId);
+                selectGroup(chat.groupId);
             }
         },
 
         onUserStartChat: (user) => {
-            console.log('Start chat with user:', user);
+            console.log('👤 Start chat with user:', user);
             // Логика начала чата с новым пользователем
-            // Например, создать новый чат и открыть его
+            if (user.id) {
+                // Создаём новый чат если не существует
+                addChatToActive(user.username || user.id);
+                selectUser(user.username || user.id);
+            }
         },
 
         onSettingsClick: () => {
@@ -1235,6 +1287,13 @@ function initSidebar() {
             openCreateGroupModal();
         }
     });
+    
+    // Первоначальная загрузка данных в sidebar
+    setTimeout(() => {
+        if (window.sidebarComponent) {
+            window.sidebarComponent.renderChatsList();
+        }
+    }, 100);
 }
 
 /**
@@ -1686,9 +1745,118 @@ function renderChats() {
  * Рендеринг всех списков
  */
 function renderAll() {
-    renderChats();
+    // renderChats(); // Отключено - используется SidebarComponent
     renderGroups();
+    
+    // Обновляем sidebar компонент если он существует
+    if (window.sidebarComponent) {
+        window.sidebarComponent.renderChatsList();
+    }
 }
+
+// ============================================================================
+// 🔹 Функции для SidebarComponent (предоставление реальных данных)
+// ============================================================================
+
+/**
+ * Получить данные чатов для SidebarComponent
+ * @returns {Array} - Массив чатов для отображения
+ */
+window.renderChatsListData = function() {
+    const chats = [];
+    
+    // Добавляем активные чаты с пользователями
+    users.forEach(user => {
+        if (user.name === currentUser) return;
+        
+        // Проверяем, есть ли активный чат
+        const isActive = user.activeChat === currentUser;
+        
+        // Получаем последнее сообщение
+        const key = `chat_messages_${currentUser}_${user.name}`;
+        const saved = localStorage.getItem(key);
+        let lastMessage = 'Нет сообщений';
+        let timestamp = Date.now();
+        
+        if (saved) {
+            try {
+                const messages = JSON.parse(saved);
+                if (messages.length > 0) {
+                    const lastMsg = messages[messages.length - 1];
+                    lastMessage = lastMsg.text || (lastMsg.fileData ? '📎 Файл' : 'Сообщение');
+                    timestamp = lastMsg.timestamp || Date.now();
+                }
+            } catch (e) {}
+        }
+        
+        // Добавляем всех пользователей (не только активных)
+        chats.push({
+            id: 'chat_' + user.name,
+            type: 'personal',
+            userId: user.name,
+            name: user.name,
+            avatar: getUserAvatar(user.name),
+            lastMessage: lastMessage,
+            timestamp: timestamp,
+            unreadCount: getUnreadMessagesCount(user.name),
+            online: user.status === 'online',
+            activeChat: user.activeChat
+        });
+    });
+    
+    // Добавляем группы
+    groups.forEach(group => {
+        const key = `group_messages_${group.id}`;
+        const saved = localStorage.getItem(key);
+        let lastMessage = 'Нет сообщений';
+        let timestamp = group.createdAt || Date.now();
+        
+        if (saved) {
+            try {
+                const messages = JSON.parse(saved);
+                if (messages.length > 0) {
+                    const lastMsg = messages[messages.length - 1];
+                    lastMessage = lastMsg.text || (lastMsg.fileData ? '📎 Файл' : 'Сообщение');
+                    timestamp = lastMsg.timestamp || Date.now();
+                }
+            } catch (e) {}
+        }
+        
+        chats.push({
+            id: 'group_' + group.id,
+            type: 'group',
+            groupId: group.id,
+            name: group.name,
+            avatar: null,
+            lastMessage: lastMessage,
+            timestamp: timestamp,
+            unreadCount: 0,
+            membersCount: group.members ? group.members.length : 0
+        });
+    });
+    
+    return chats;
+};
+
+/**
+ * Получить публичных пользователей для поиска
+ * @returns {Array} - Массив пользователей с allowPublicView
+ */
+window.getPublicUsersData = function() {
+    return users
+        .filter(user => {
+            // Показываем пользователей, которые разрешили показ в каталоге
+            return user.isVisibleInDirectory !== false && user.name !== currentUser;
+        })
+        .map(user => ({
+            id: 'user_' + user.name,
+            username: user.name,
+            displayName: user.name,
+            avatar: getUserAvatar(user.name),
+            status: user.status || 'offline',
+            allowPublicView: user.isVisibleInDirectory !== false
+        }));
+};
 
 /**
  * Получить аватарку пользователя
@@ -1806,7 +1974,12 @@ function markMessagesAsRead(username) {
  * @param {string|null} username - Имя пользователя или null
  */
 function updateUserItemSelection(username) {
-    // Обновляем выделение в общем списке чатов
+    // Обновляем выделение в sidebar компоненте
+    if (window.sidebarComponent) {
+        window.sidebarComponent.selectChat('chat_' + username);
+    }
+    
+    // Для совместимости оставляем работу со старым списком (если он есть)
     const chatItems = DOM.chatsList?.querySelectorAll('.chat-item');
     if (chatItems) {
         chatItems.forEach(item => {
@@ -3327,7 +3500,7 @@ function closeMenuOnClick(e) {
 /**
  * ✨ Показать пикер реакций
  * @param {number} x - Координата X
- * @param {number} y - Координата Y
+ * @param {number} y - ��оордината Y
  * @param {Object} messageData - Данные сообщения
  * @param {HTMLElement} messageEl - Элемент сообщения
  */
@@ -3447,7 +3620,7 @@ function addReaction(messageData, messageEl, emoji) {
     // Получаем текущие реакции сообщения в формате {emoji: [{userId, timestamp}]}
     let allReactions = messageEl._reactions || {};
     
-    // Глубокое копирование чтобы не мутировать оригинал
+    // Глубокое копирование чтобы не мутир��вать оригинал
     allReactions = JSON.parse(JSON.stringify(allReactions));
 
     // Получаем текущие реакции пользователя
@@ -5087,7 +5260,7 @@ function saveSettings() {
             fontSize: DOM.fontSizeSelect?.value || '14',
             soundEnabled: DOM.soundNotify?.checked ?? true,
             isVisibleInDirectory: DOM.showInDirectory?.checked ?? false,
-            allowGroupInvite: DOM.allowGroupInvite?.checked ?? false // ✨ Настройка для групповых чатов
+            allowGroupInvite: DOM.allowGroupInvite?.checked ?? false // ✨ Настройка для ��рупповых чатов
         };
         localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
     } catch (e) {
@@ -5249,7 +5422,7 @@ function generateHint(key) {
 }
 
 /**
- * Расшифровка сообщения
+ * Расшиф����овка сообщения
  */
 function decryptMessage() {
     if (!DOM.decryptKeyBox || !DOM.decryptPanel) return;
@@ -5365,6 +5538,31 @@ function initSettings() {
 
     if (logoutBtn) {
         logoutBtn.addEventListener('click', performLogout);
+    }
+
+    // ℹ️ Кнопка о разработчике в настройках
+    const aboutDeveloperSettingsBtn = document.getElementById('aboutDeveloperSettingsBtn');
+    const aboutDeveloperModal = document.getElementById('aboutDeveloperModal');
+    const closeAboutDeveloper = document.getElementById('closeAboutDeveloper');
+
+    if (aboutDeveloperSettingsBtn && aboutDeveloperModal) {
+        aboutDeveloperSettingsBtn.addEventListener('click', () => {
+            aboutDeveloperModal.classList.remove('hidden');
+        });
+    }
+
+    if (closeAboutDeveloper && aboutDeveloperModal) {
+        closeAboutDeveloper.addEventListener('click', () => {
+            aboutDeveloperModal.classList.add('hidden');
+        });
+    }
+
+    if (aboutDeveloperModal) {
+        aboutDeveloperModal.addEventListener('click', (e) => {
+            if (e.target === aboutDeveloperModal) {
+                aboutDeveloperModal.classList.add('hidden');
+            }
+        });
     }
 
     // Обработчики настроек

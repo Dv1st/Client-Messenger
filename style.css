@@ -482,58 +482,6 @@ body.font-large { font-size: 16px; }
     min-height: 0;
 }
 
-/* Профиль пользователя (закреплен вверху) */
-.sidebar-profile {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 16px 20px;
-    background: var(--element-bg);
-    border-bottom: 1px solid var(--border-color);
-    flex-shrink: 0;
-}
-
-.sidebar-profile .current-user {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-}
-
-.sidebar-profile .user-icon {
-    font-size: 28px;
-}
-
-.sidebar-profile .user-label {
-    font-weight: 600;
-    font-size: 15px;
-    color: var(--text-primary);
-}
-
-.sidebar-profile .profile-actions {
-    display: flex;
-    gap: 8px;
-}
-
-.sidebar-profile .settings-btn,
-.sidebar-profile .profile-btn {
-    width: 36px;
-    height: 36px;
-    border-radius: 50%;
-    background: var(--element-bg-hover);
-    border: none;
-    cursor: pointer;
-    font-size: 18px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: background var(--transition-fast);
-}
-
-.sidebar-profile .settings-btn:hover,
-.sidebar-profile .profile-btn:hover {
-    background: var(--accent);
-}
-
 /* Кнопка переключения sidebar */
 .sidebar-toggle {
     position: absolute;
@@ -2525,6 +2473,88 @@ body.font-large { font-size: 16px; }
 
 .btn-logout:hover {
     background: var(--error-hover);
+}
+
+/* ============================================================================
+   ℹ️ Кнопка и модальное окно о разработчике
+   ============================================================================ */
+.about-developer-btn {
+    width: 100%;
+    padding: 12px 16px;
+    background: var(--element-bg);
+    border: 2px solid var(--border-color);
+    border-radius: var(--border-radius-md);
+    color: var(--text-primary);
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+.about-developer-btn:hover {
+    background: var(--element-bg-hover);
+    border-color: var(--accent);
+}
+
+/* Модальное окно о разработчике */
+.about-developer-body {
+    padding: 20px;
+}
+
+.developer-info {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 16px;
+}
+
+.developer-avatar {
+    width: 100px;
+    height: 100px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 48px;
+    box-shadow: 0 4px 20px var(--shadow-color);
+}
+
+.developer-name {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin: 0;
+}
+
+.developer-description {
+    font-size: 14px;
+    color: var(--text-secondary);
+    line-height: 1.6;
+    margin: 0;
+}
+
+.developer-badge {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    background: var(--element-bg);
+    border-radius: 20px;
+    border: 1px solid var(--accent);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--accent);
+    margin-top: 8px;
+}
+
+.badge-icon {
+    font-size: 18px;
 }
 
 /* ============================================================================

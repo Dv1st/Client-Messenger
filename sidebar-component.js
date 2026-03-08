@@ -2,12 +2,16 @@
  * SidebarComponent - Компонент боковой панели мессенджера
  * @version 1.0.0
  * @description Боковая панель с поиском, списком чатов и глобальным каталогом пользователей
+ * 
+ * ИНТЕГРАЦИЯ С APP.JS:
+ * - Использует реальные данные из app.js (users, groups, currentUser)
+ * - Для моковых данных используется только при отсутствии реальных
  */
 
 'use strict';
 
 // ============================================================================
-// 🔹 Моковые данные (для демонстрации)
+// 🔹 Моковые данные (только для демонстрации/тестирования)
 // ============================================================================
 const MOCK_DATA = {
     // Текущий пользователь
@@ -20,113 +24,11 @@ const MOCK_DATA = {
         allowPublicView: true
     },
 
-    // Активные чаты (личные)
-    activeChats: [
-        {
-            id: 'chat_1',
-            type: 'personal',
-            userId: 'user_2',
-            name: 'Мария Иванова',
-            avatar: null,
-            lastMessage: 'Привет! Как дела с проектом?',
-            timestamp: Date.now() - 60000, // 1 минуту назад
-            unreadCount: 2,
-            online: true,
-            activeChat: null
-        },
-        {
-            id: 'chat_2',
-            type: 'personal',
-            userId: 'user_3',
-            name: 'Дмитрий Петров',
-            avatar: null,
-            lastMessage: 'Отправил файлы на почту',
-            timestamp: Date.now() - 3600000, // 1 час назад
-            unreadCount: 0,
-            online: false,
-            activeChat: null
-        },
-        {
-            id: 'chat_3',
-            type: 'group',
-            groupId: 'group_1',
-            name: 'Frontend Команда',
-            avatar: null,
-            lastMessage: 'Встреча в 15:00',
-            timestamp: Date.now() - 7200000, // 2 часа назад
-            unreadCount: 5,
-            membersCount: 8
-        },
-        {
-            id: 'chat_4',
-            type: 'personal',
-            userId: 'user_4',
-            name: 'Елена Смирнова',
-            avatar: null,
-            lastMessage: 'Спасибо!',
-            timestamp: Date.now() - 86400000, // 1 день назад
-            unreadCount: 0,
-            online: true,
-            activeChat: 'user_5'
-        },
-        {
-            id: 'chat_5',
-            type: 'group',
-            groupId: 'group_2',
-            name: 'Дизайн чат',
-            avatar: null,
-            lastMessage: 'Новый макет готов',
-            timestamp: Date.now() - 172800000, // 2 дня назад
-            unreadCount: 0,
-            membersCount: 5
-        }
-    ],
+    // Активные чаты (личные) - ЗАПОЛНИТЕСЬ ИЗ APP.JS
+    activeChats: [],
 
-    // Пользователи для глобального поиска (с allow_public_view: true)
-    publicUsers: [
-        {
-            id: 'user_5',
-            username: 'john_doe',
-            displayName: 'John Doe',
-            avatar: null,
-            status: 'online',
-            allowPublicView: true
-        },
-        {
-            id: 'user_6',
-            username: 'jane_smith',
-            displayName: 'Jane Smith',
-            avatar: null,
-            status: 'offline',
-            allowPublicView: true,
-            lastSeen: Date.now() - 3600000
-        },
-        {
-            id: 'user_7',
-            username: 'bob_wilson',
-            displayName: 'Bob Wilson',
-            avatar: null,
-            status: 'online',
-            allowPublicView: true
-        },
-        {
-            id: 'user_8',
-            username: 'alice_brown',
-            displayName: 'Alice Brown',
-            avatar: null,
-            status: 'offline',
-            allowPublicView: true,
-            lastSeen: Date.now() - 86400000
-        },
-        {
-            id: 'user_9',
-            username: 'charlie_davis',
-            displayName: 'Charlie Davis',
-            avatar: null,
-            status: 'online',
-            allowPublicView: true
-        }
-    ]
+    // Пользователи для глобального поиска (с allow_public_view: true) - ЗАПОЛНИТЕСЬ ИЗ APP.JS
+    publicUsers: []
 };
 
 // ============================================================================
@@ -154,9 +56,9 @@ class SidebarComponent {
 
         // Состояние
         this.state = {
-            currentUser: options.currentUser || MOCK_DATA.currentUser,
-            chats: [...options.activeChats || MOCK_DATA.activeChats],
-            publicUsers: [...options.publicUsers || MOCK_DATA.publicUsers],
+            currentUser: options.currentUser || null,
+            chats: [],
+            publicUsers: [],
             isSearchFocused: false,
             searchQuery: '',
             selectedChatId: null
@@ -289,8 +191,16 @@ class SidebarComponent {
     renderChatsList() {
         if (!this.dom.chatsList) return;
 
+        // Получаем реальные данные из app.js если они есть
+        let chats = this.state.chats;
+        
+        // Если есть глобальные данные (из app.js), используем их
+        if (typeof window.renderChatsListData === 'function') {
+            chats = window.renderChatsListData();
+        }
+
         // Сортировка по времени последнего сообщения (сверху — самые свежие)
-        const sortedChats = [...this.state.chats].sort((a, b) => b.timestamp - a.timestamp);
+        const sortedChats = [...chats].sort((a, b) => b.timestamp - a.timestamp);
 
         this.dom.chatsList.innerHTML = sortedChats.map(chat => this.renderChatItem(chat)).join('');
     }
@@ -306,9 +216,11 @@ class SidebarComponent {
         const hasUnread = chat.unreadCount > 0;
 
         return `
-            <div class="chat-item ${isSelected ? 'selected' : ''}" 
-                 data-chat-id="${escapeHtml(chat.id)}" 
+            <div class="chat-item ${isSelected ? 'selected' : ''}"
+                 data-chat-id="${escapeHtml(chat.id)}"
                  data-chat-type="${escapeHtml(chat.type)}"
+                 ${chat.userId ? `data-user-id="${escapeHtml(chat.userId)}"` : ''}
+                 ${chat.groupId ? `data-group-id="${escapeHtml(chat.groupId)}"` : ''}
                  role="listitem"
                  tabindex="0"
                  aria-label="${escapeHtml(chat.name)}, ${chat.unreadCount} непрочитанных">
@@ -403,8 +315,14 @@ class SidebarComponent {
             this.dom.searchClearBtn.classList.remove('hidden');
         }
 
+        // Получаем реальных пользователей для поиска из app.js
+        let users = this.state.publicUsers;
+        if (typeof window.getPublicUsersData === 'function') {
+            users = window.getPublicUsersData();
+        }
+
         // Рендерим всех пользователей для поиска
-        this.renderSearchResults(this.state.publicUsers);
+        this.renderSearchResults(users);
     }
 
     /**
@@ -438,8 +356,14 @@ class SidebarComponent {
         const query = e.target.value.trim().toLowerCase();
         this.state.searchQuery = query;
 
+        // Получаем реальных пользователей из app.js
+        let allUsers = this.state.publicUsers;
+        if (typeof window.getPublicUsersData === 'function') {
+            allUsers = window.getPublicUsersData();
+        }
+
         // Фильтрация пользователей
-        const filteredUsers = this.state.publicUsers.filter(user => {
+        const filteredUsers = allUsers.filter(user => {
             const name = (user.displayName || user.username).toLowerCase();
             return name.includes(query);
         });
@@ -471,14 +395,21 @@ class SidebarComponent {
 
         const chatId = chatItem.dataset.chatId;
         const chatType = chatItem.dataset.chatType;
+        const userId = chatItem.dataset.userId;
+        const groupId = chatItem.dataset.groupId;
 
         this.state.selectedChatId = chatId;
 
         // Обновляем выделение
         this.renderChatsList();
 
-        // Вызываем callback
-        this.callbacks.onChatSelect?.({ id: chatId, type: chatType });
+        // Вызываем callback с полными данными
+        this.callbacks.onChatSelect?.({ 
+            id: chatId, 
+            type: chatType,
+            userId: userId,
+            groupId: groupId
+        });
     }
 
     /**
@@ -516,7 +447,13 @@ class SidebarComponent {
             this.dom.searchBox.value = '';
         }
 
-        this.renderSearchResults(this.state.publicUsers);
+        // Получаем реальных пользователей из app.js
+        let users = this.state.publicUsers;
+        if (typeof window.getPublicUsersData === 'function') {
+            users = window.getPublicUsersData();
+        }
+
+        this.renderSearchResults(users);
 
         if (this.dom.searchClearBtn) {
             this.dom.searchClearBtn.classList.add('hidden');
