@@ -255,7 +255,8 @@ function sanitizeMessageText(text) {
 // ============================================================================
 document.addEventListener('DOMContentLoaded', () => {
     initDOM();
-    autoLogin();
+    // 🔐 Автозаход отключён - требуется ручной вход
+    // autoLogin();
     initTabs();
     initLogin();
     initChat();
@@ -661,9 +662,9 @@ function handleServerMessage(data) {
             case 'register_success':
                 // 🔒 Автоматический вход после регистрации
                 if (data.username && data.token && data.deviceId) {
-                    // Сохраняем сессию
+                    // 🔐 Сохранение сессии отключено
+                    // saveAuthSession(currentUser, data.token, data.deviceId);
                     currentUser = data.username;
-                    saveAuthSession(currentUser, data.token, data.deviceId);
 
                     if (typeof data.isVisibleInDirectory === 'boolean') {
                         isVisibleInDirectory = data.isVisibleInDirectory;
@@ -900,10 +901,10 @@ function handleLoginSuccess(data) {
         userBadges = data.userBadges;
     }
 
-    // 🔒 Сохраняем токен сессии для авто-входа
-    if (data.token && data.deviceId) {
-        saveAuthSession(currentUser, data.token, data.deviceId);
-    }
+    // 🔐 Сохранение сессии отключено
+    // if (data.token && data.deviceId) {
+    //     saveAuthSession(currentUser, data.token, data.deviceId);
+    // }
 
     DOM.loginWindow?.classList.add('hidden');
     DOM.chatWindow?.classList.remove('hidden');
@@ -3491,7 +3492,7 @@ function addMessage(data, isOwn = false, scrollToBottom = true) {
 /**
  * Показать контекстное меню для сообщения
  * @param {MouseEvent} e - Событие мыши
- * @param {HTMLElement} messageEl - Элемент сообщения
+ * @param {HTMLElement} messageEl - Элемент ����ообщения
  * @param {Object} messageData - Данные сообщения
  * @param {boolean} isOwn - С��оё ли сообщение
  */
@@ -5238,7 +5239,7 @@ function saveAuthSession(username, token, deviceId) {
     try {
         const sessionData = {
             username: username,
-            token: token, // 🔒 Токен сессии для авто-входа
+            token: token, // 🔒 Токен сессии для авто-��х��да
             deviceId: deviceId, // ID устройства
             passwordHint: username.substring(0, 2) + '•••', // 🔒 Безопасная подсказка
             timestamp: Date.now(),
@@ -5279,8 +5280,8 @@ function performLogout() {
         socket = null;
     }
 
-    // Очищаем сессию
-    localStorage.removeItem(AUTH_SESSION_KEY);
+    // 🔐 Очистка сессии отключена (автозаход не используется)
+    // localStorage.removeItem(AUTH_SESSION_KEY);
 
     // Сбрасываем состояние
     currentUser = null;

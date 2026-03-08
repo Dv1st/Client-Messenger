@@ -105,6 +105,11 @@ async function loadUsersFromDatabase() {
         const rows = await db.getAllUsers();
 
         rows.forEach(row => {
+            // 🔐 Отладка: проверяем загрузку salt и passwordHash
+            console.log(`📖 loadUser: ${row.username}`);
+            console.log(`   password_hash from DB: ${row.password_hash ? row.password_hash.substring(0, 16) + '...' : 'MISSING'}`);
+            console.log(`   salt from DB: ${row.salt ? row.salt.substring(0, 16) + '...' : 'MISSING'}`);
+            
             users.set(row.username, {
                 passwordHash: row.password_hash,
                 salt: row.salt,
@@ -720,7 +725,16 @@ function handleLogin(ws, { username, password }, clientIp) {
     }
 
     try {
-        const passwordHash = hashPassword(password, user.salt);
+        const salt = user.salt;
+        const passwordHash = hashPassword(password, salt);
+        
+        // 🔐 Отладка: проверяем salt и хеши
+        console.log(`🔍 Login debug for ${username}:`);
+        console.log(`   Salt from DB: ${salt ? salt.substring(0, 16) + '...' : 'MISSING'}`);
+        console.log(`   Stored hash: ${user.passwordHash ? user.passwordHash.substring(0, 16) + '...' : 'MISSING'}`);
+        console.log(`   Computed hash: ${passwordHash ? passwordHash.substring(0, 16) + '...' : 'MISSING'}`);
+        console.log(`   Hashes match: ${passwordHash === user.passwordHash}`);
+        
         if (passwordHash !== user.passwordHash) {
             console.log(`🚫 Wrong password: ${username} from ${clientIp}`);
             return ws.send(JSON.stringify({ type: 'login_error', message: 'Неверный логин или пароль' }));

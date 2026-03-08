@@ -160,6 +160,25 @@ async function getAllUsers() {
  * 🔒 Параметризованный запрос для защиты от SQL-инъекций
  */
 async function saveUser(username, userData) {
+  const values = [
+      username,
+      userData.passwordHash,
+      userData.salt,
+      userData.createdAt,
+      userData.lastLogin || null,
+      userData.isVisibleInDirectory || false,
+      userData.allowGroupInvite || false,
+      userData.twoFactorSecret || null,
+      userData.twoFactorEnabled || false,
+      userData.twoFactorBackupCodes || null,
+      JSON.stringify(userData.userBadges || [])
+  ];
+  
+  // 🔐 Отладка: проверяем сохранение salt и passwordHash
+  console.log(`💾 saveUser: ${username}`);
+  console.log(`   passwordHash: ${userData.passwordHash ? userData.passwordHash.substring(0, 16) + '...' : 'MISSING'}`);
+  console.log(`   salt: ${userData.salt ? userData.salt.substring(0, 16) + '...' : 'MISSING'}`);
+  
   await pool.query(
     `INSERT INTO users
      (username, password_hash, salt, created_at, last_login,
@@ -177,20 +196,10 @@ async function saveUser(username, userData) {
        two_factor_enabled = EXCLUDED.two_factor_enabled,
        two_factor_backup_codes = EXCLUDED.two_factor_backup_codes,
        user_badges = EXCLUDED.user_badges`,
-    [
-      username,
-      userData.passwordHash,
-      userData.salt,
-      userData.createdAt,
-      userData.lastLogin || null,
-      userData.isVisibleInDirectory || false,
-      userData.allowGroupInvite || false,
-      userData.twoFactorSecret || null,
-      userData.twoFactorEnabled || false,
-      userData.twoFactorBackupCodes || null,
-      JSON.stringify(userData.userBadges || [])
-    ]
+    values
   );
+  
+  console.log(`✅ saveUser completed: ${username}`);
 }
 
 /**
