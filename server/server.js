@@ -289,7 +289,9 @@ const wss = new WebSocket.Server({
     server,
     verifyClient: (info, callback) => {
         const origin = info.origin || info.req.headers.origin;
-        if (process.env.NODE_ENV === 'production' && !isOriginAllowed(origin)) {
+        // 🔒 В production проверяем origin (можно отключить для отладки)
+        const DEBUG_DISABLE_CORS = false; // Установить true для отладки
+        if (process.env.NODE_ENV === 'production' && !DEBUG_DISABLE_CORS && !isOriginAllowed(origin)) {
             console.warn(`🚫 Blocked origin: ${origin}`);
             return callback(false, 403);
         }
