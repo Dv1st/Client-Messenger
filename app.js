@@ -1,6 +1,6 @@
 /**
  * Client Messenger - Клиентская часть
- * @version 3.0.0
+ * @version 1.0.3
  * @description Безопасная и оптимизированная версия с защитой от XSS
  */
 
