@@ -85,39 +85,31 @@
                     </div>
                 </div>
 
-                <!-- 2. Список активных чатов -->
-                <div class="chats-section">
-                    <div class="section-header">
-                        <span class="section-title">💬 Активные чаты</span>
-                    </div>
-                    <div class="active-chats-list" id="activeChatsList" role="list" aria-label="Активные чаты"></div>
-                </div>
-
                 <!-- 2.1 Список групп -->
                 <div class="groups-section">
                     <div class="section-header groups-section-header">
                         <span class="section-title">👥 Группы</span>
-                        <button class="collapse-section-btn" id="collapseGroupsBtn" type="button" title="Свернуть/Развернуть" aria-label="Свернуть список групп">
-                            <span class="collapse-icon">▼</span>
-                        </button>
+                        <div class="group-header-actions">
+                            <button class="create-group-btn" id="createGroupBtn" type="button" title="Создать группу" aria-label="Создать группу">
+                                ➕
+                            </button>
+                            <button class="collapse-section-btn" id="collapseGroupsBtn" type="button" title="Свернуть/Развернуть" aria-label="Свернуть список групп">
+                                <span class="collapse-icon">▼</span>
+                            </button>
+                        </div>
                     </div>
                     <div class="groups-list" id="groupsList" role="list" aria-label="Список групп"></div>
                 </div>
 
-                <!-- 3. Разделитель -->
-                <div class="sidebar-divider">
-                    <span class="divider-text">СПИСОК ПОЛЬЗОВАТЕЛЕЙ</span>
-                </div>
-
-                <!-- 4. Список пользователей (только с visibility: true) -->
+                <!-- 3. Список пользователей (включая активные чаты) -->
                 <div class="users-section">
                     <div class="section-header users-section-header">
-                        <span class="section-title">👥 Пользователи</span>
-                        <button class="collapse-section-btn" id="collapseUsersBtn" type="button" title="Свернуть/Развернуть" aria-label="Свернуть список пользователей">
+                        <span class="section-title">💬 Чаты</span>
+                        <button class="collapse-section-btn" id="collapseUsersBtn" type="button" title="Свернуть/Развернуть" aria-label="Свернуть список чатов">
                             <span class="collapse-icon">▼</span>
                         </button>
                     </div>
-                    <div class="users-list" id="usersList" role="list" aria-label="Список пользователей"></div>
+                    <div class="users-list" id="usersList" role="list" aria-label="Список чатов"></div>
                 </div>
 
                 <!-- Подвал -->
@@ -283,6 +275,22 @@
                         <label for="allowGroupInvite">👥 Разрешить добавлять меня в групповые чаты</label>
                         <input type="checkbox" id="allowGroupInvite">
                         <small class="hint">По умолчанию: отключено. Включите, если хотите, чтобы другие могли добавлять вас в группы</small>
+                    </div>
+                </section>
+
+                <!-- 🔒 2FA -->
+                <section class="settings-section">
+                    <h3>🔐 Двухфакторная аутентификация</h3>
+                    <div class="setting-item two-factor-item">
+                        <div class="two-factor-info">
+                            <label>Двухфакторная аутентификация</label>
+                            <small class="hint">Защитите свой аккаунт с помощью Google Authenticator или аналогичного приложения</small>
+                        </div>
+                        <button id="twoFactorBtn" class="btn-2fa" type="button">Включить 2FA</button>
+                    </div>
+                    <div id="twoFactorStatus" class="two-factor-status hidden">
+                        <span class="status-indicator online"></span>
+                        <span>2FA включён</span>
                     </div>
                 </section>
 
@@ -505,5 +513,83 @@
     </script>
 
     <script src="app.js"></script>
+
+    <!-- 🔐 Модальное окно настройки 2FA -->
+    <div id="twoFactorModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="twoFactorModalTitle">
+        <div class="modal-content modal-content-2fa">
+            <header class="modal-header">
+                <h2 id="twoFactorModalTitle">🔐 Двухфакторная аутентификация</h2>
+                <button class="modal-close" id="closeTwoFactor" type="button" aria-label="Закрыть">&times;</button>
+            </header>
+            <div class="modal-body">
+                <!-- Шаг 1: QR код -->
+                <div id="twoFactorStep1" class="two-factor-step">
+                    <h3>Настройка 2FA</h3>
+                    <ol class="two-factor-steps">
+                        <li>Установите приложение аутентификации (Google Authenticator, Authy, Microsoft Authenticator)</li>
+                        <li>Отсканируйте QR код или введите ключ вручную</li>
+                        <li>Введите 6-значный код из приложения</li>
+                    </ol>
+                    
+                    <div class="two-factor-qr">
+                        <img id="twoFactorQR" src="" alt="QR код для 2FA">
+                    </div>
+                    
+                    <div class="two-factor-secret">
+                        <label>Ключ вручную:</label>
+                        <div class="secret-display">
+                            <code id="twoFactorSecret">---</code>
+                            <button id="copySecretBtn" class="btn-copy" type="button" title="Копировать">📋</button>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="twoFactorCodeInput">Код из приложения</label>
+                        <input type="text" id="twoFactorCodeInput" placeholder="123456" maxlength="6" pattern="[0-9]*" inputmode="numeric">
+                    </div>
+                    
+                    <button id="enableTwoFactorBtn" class="btn-primary" type="button">Включить 2FA</button>
+                </div>
+
+                <!-- Шаг 2: Резервные коды -->
+                <div id="twoFactorStep2" class="two-factor-step hidden">
+                    <h3>✅ 2FA успешно включён!</h3>
+                    <p class="two-factor-success-text">
+                        Сохраните эти резервные коды в безопасном месте. 
+                        Каждый код можно использовать только один раз.
+                    </p>
+                    
+                    <div class="two-factor-backup-codes" id="twoFactorBackupCodes">
+                        <!-- Коды будут добавлены через JavaScript -->
+                    </div>
+                    
+                    <button id="downloadBackupCodesBtn" class="btn-secondary" type="button">📥 Скачать коды</button>
+                    <button id="closeTwoFactorAfterSetup" class="btn-primary" type="button">Готово</button>
+                </div>
+
+                <!-- Шаг 3: Отключение 2FA -->
+                <div id="twoFactorStep3" class="two-factor-step hidden">
+                    <h3>Отключить 2FA</h3>
+                    <p>Введите код из приложения аутентификации или резервный код:</p>
+                    
+                    <div class="form-group">
+                        <label for="disableTwoFactorCodeInput">Код</label>
+                        <input type="text" id="disableTwoFactorCodeInput" placeholder="123456" maxlength="6" pattern="[0-9]*" inputmode="numeric">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>
+                            <input type="checkbox" id="useBackupCodeCheckbox"> Использовать резервный код
+                        </label>
+                    </div>
+                    
+                    <button id="disableTwoFactorBtn" class="btn-danger" type="button">Отключить 2FA</button>
+                    <button id="cancelDisableTwoFactor" class="btn-secondary" type="button">Отмена</button>
+                </div>
+
+                <div id="twoFactorMessage" class="status-message" role="alert" aria-live="polite"></div>
+            </div>
+        </div>
+    </div>
 </body>
 </html>

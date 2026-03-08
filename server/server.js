@@ -41,7 +41,10 @@ function initializeDatabase() {
                     createdAt INTEGER,
                     lastLogin INTEGER,
                     isVisibleInDirectory INTEGER DEFAULT 0,
-                    allowGroupInvite INTEGER DEFAULT 0
+                    allowGroupInvite INTEGER DEFAULT 0,
+                    twoFactorSecret TEXT,
+                    twoFactorEnabled INTEGER DEFAULT 0,
+                    twoFactorBackupCodes TEXT
                 )
             `);
 
@@ -89,17 +92,28 @@ const MESSAGE_MAX_LENGTH = 10000;
 const USERNAME_MIN_LENGTH = 3;
 const USERNAME_MAX_LENGTH = 20;
 
+// 🔒 2FA Константы
+const TOTP_SECRET_LENGTH = 32; // 256 бит
+const TOTP_CODE_LENGTH = 6;
+const TOTP_PERIOD = 30; // 30 секунд
+const TOTP_WINDOW = 1; // ±1 период для компенсации рассинхронизации
+const BACKUP_CODES_COUNT = 10;
+const BACKUP_CODES_LENGTH = 8;
+
 // ============================================================================
 // 🔒 Security Headers
 // ============================================================================
 const CSP_HEADERS = {
-    'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' wss: ws:; frame-ancestors 'none';",
+    'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' wss: ws: https:; frame-ancestors 'none'; base-uri 'self'; form-action 'self';",
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'DENY',
     'X-XSS-Protection': '1; mode=block',
     'Referrer-Policy': 'strict-origin-when-cross-origin',
-    'Permissions-Policy': 'geolocation=(), microphone=(), camera=()',
-    'Strict-Transport-Security': 'max-age=31536000; includeSubDomains'
+    'Permissions-Policy': 'geolocation=(), microphone=(), camera=(), payment=(), usb=()',
+    'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
+    'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+    'Pragma': 'no-cache',
+    'Expires': '0'
 };
 
 const ALLOWED_ORIGINS = [
@@ -150,6 +164,9 @@ function loadUsersFromDatabase() {
                     lastLogin: row.lastLogin,
                     isVisibleInDirectory: row.isVisibleInDirectory === 1,
                     allowGroupInvite: row.allowGroupInvite === 1,
+                    twoFactorSecret: row.twoFactorSecret || null,
+                    twoFactorEnabled: row.twoFactorEnabled === 1,
+                    twoFactorBackupCodes: row.twoFactorBackupCodes || null,
                     status: 'offline',
                     activeChat: null,
                     devices: new Map()
@@ -168,9 +185,9 @@ function loadUsersFromDatabase() {
 function saveUserToDatabase(username, userData) {
     return new Promise((resolve, reject) => {
         db.run(
-            `INSERT OR REPLACE INTO users 
-             (username, passwordHash, salt, createdAt, lastLogin, isVisibleInDirectory, allowGroupInvite) 
-             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT OR REPLACE INTO users
+             (username, passwordHash, salt, createdAt, lastLogin, isVisibleInDirectory, allowGroupInvite, twoFactorSecret, twoFactorEnabled, twoFactorBackupCodes)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 username,
                 userData.passwordHash,
@@ -178,7 +195,10 @@ function saveUserToDatabase(username, userData) {
                 userData.createdAt,
                 userData.lastLogin || null,
                 userData.isVisibleInDirectory ? 1 : 0,
-                userData.allowGroupInvite ? 1 : 0
+                userData.allowGroupInvite ? 1 : 0,
+                userData.twoFactorSecret || null,
+                userData.twoFactorEnabled ? 1 : 0,
+                userData.twoFactorBackupCodes || null
             ],
             (err) => {
                 if (err) {
@@ -442,6 +462,198 @@ function generateToken() {
 }
 
 // ============================================================================
+// 🔒 2FA / TOTP Функции
+// ============================================================================
+
+/**
+ * Генерация TOTP секрета
+ * @returns {string} - Base32 encoded secret
+ */
+function generateTOTPSecret() {
+    const secret = crypto.randomBytes(TOTP_SECRET_LENGTH);
+    return base32Encode(secret);
+}
+
+/**
+ * Генерация TOTP кода
+ * @param {string} secret - Base32 секрет
+ * @param {number} [timestamp] - Временная метка
+ * @returns {string} - 6-значный код
+ */
+function generateTOTPCode(secret, timestamp = Date.now()) {
+    try {
+        const period = Math.floor(timestamp / 1000 / TOTP_PERIOD);
+        const secretBytes = base32Decode(secret);
+        
+        // Создаем буфер для временной метки (8 байт, big-endian)
+        const buffer = Buffer.alloc(8);
+        buffer.writeUInt32BE(0, 0);
+        buffer.writeUInt32BE(period, 4);
+        
+        // HMAC-SHA1
+        const hmac = crypto.createHmac('sha1', secretBytes);
+        hmac.update(buffer);
+        const digest = hmac.digest();
+        
+        // Dynamic truncation
+        const offset = digest[digest.length - 1] & 0x0f;
+        const binary = ((digest[offset] & 0x7f) << 24) |
+                       ((digest[offset + 1] & 0xff) << 16) |
+                       ((digest[offset + 2] & 0xff) << 8) |
+                       (digest[offset + 3] & 0xff);
+        
+        const otp = binary % Math.pow(10, TOTP_CODE_LENGTH);
+        return otp.toString().padStart(TOTP_CODE_LENGTH, '0');
+    } catch (e) {
+        console.error('❌ generateTOTPCode error:', e);
+        return '';
+    }
+}
+
+/**
+ * Верификация TOTP кода
+ * @param {string} secret - Base32 секрет
+ * @param {string} token - Код от пользователя
+ * @returns {boolean}
+ */
+function verifyTOTP(secret, token) {
+    if (!secret || !token || typeof token !== 'string') return false;
+    
+    const cleanToken = token.replace(/\s/g, '');
+    if (!/^\d+$/.test(cleanToken) || cleanToken.length !== TOTP_CODE_LENGTH) return false;
+    
+    const now = Date.now();
+    
+    // Проверяем текущий и соседние периоды (для компенсации рассинхронизации)
+    for (let i = -TOTP_WINDOW; i <= TOTP_WINDOW; i++) {
+        const checkTime = now + (i * TOTP_PERIOD * 1000);
+        const expectedCode = generateTOTPCode(secret, checkTime);
+        if (expectedCode === cleanToken) return true;
+    }
+    
+    return false;
+}
+
+/**
+ * Генерация резервных кодов
+ * @returns {string[]} - Массив резервных кодов
+ */
+function generateBackupCodes() {
+    const codes = [];
+    for (let i = 0; i < BACKUP_CODES_COUNT; i++) {
+        const code = crypto.randomBytes(BACKUP_CODES_LENGTH).toString('hex').substring(0, BACKUP_CODES_LENGTH * 2);
+        codes.push(code);
+    }
+    return codes;
+}
+
+/**
+ * Проверка резервного кода
+ * @param {string[]} codes - Зашифрованные резервные коды
+ * @param {string} token - Код от пользователя
+ * @returns {boolean}
+ */
+function verifyBackupCode(encryptedCodes, token) {
+    if (!encryptedCodes || !token) return false;
+    
+    try {
+        const codes = JSON.parse(encryptedCodes);
+        const cleanToken = token.replace(/\s/g, '').toLowerCase();
+        return codes.includes(cleanToken);
+    } catch (e) {
+        return false;
+    }
+}
+
+/**
+ * Удаление использованного резервного кода
+ * @param {string} encryptedCodes - Зашифрованные коды
+ * @param {string} token - Использованный код
+ * @returns {string} - Новые зашифрованные коды
+ */
+function removeBackupCode(encryptedCodes, token) {
+    try {
+        const codes = JSON.parse(encryptedCodes);
+        const cleanToken = token.replace(/\s/g, '').toLowerCase();
+        const newCodes = codes.filter(c => c !== cleanToken);
+        return JSON.stringify(newCodes);
+    } catch (e) {
+        return encryptedCodes;
+    }
+}
+
+/**
+ * Base32 Encode
+ * @param {Buffer} buffer
+ * @returns {string}
+ */
+function base32Encode(buffer) {
+    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+    let bits = '';
+    let result = '';
+    
+    for (let i = 0; i < buffer.length; i++) {
+        const bin = buffer[i].toString(2).padStart(8, '0');
+        bits += bin;
+    }
+    
+    // Pad to multiple of 5
+    while (bits.length % 5 !== 0) {
+        bits += '0';
+    }
+    
+    for (let i = 0; i < bits.length; i += 5) {
+        const chunk = bits.substr(i, 5);
+        result += alphabet[parseInt(chunk, 2)];
+    }
+    
+    return result;
+}
+
+/**
+ * Base32 Decode
+ * @param {string} str - Base32 строка
+ * @returns {Buffer}
+ */
+function base32Decode(str) {
+    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+    str = str.toUpperCase().replace(/[^A-Z2-7]/g, '');
+    
+    let bits = '';
+    for (let i = 0; i < str.length; i++) {
+        const idx = alphabet.indexOf(str[i]);
+        if (idx === -1) continue;
+        const bin = idx.toString(2).padStart(5, '0');
+        bits += bin;
+    }
+    
+    const bytes = [];
+    for (let i = 0; i < bits.length; i += 8) {
+        const chunk = bits.substr(i, 8);
+        if (chunk.length === 8) {
+            bytes.push(parseInt(chunk, 2));
+        }
+    }
+    
+    return Buffer.from(bytes);
+}
+
+/**
+ * Генерация QR кода для Google Authenticator (data URL)
+ * @param {string} username
+ * @param {string} secret
+ * @returns {string} - SVG QR код
+ */
+function generateQRCodeSVG(username, secret) {
+    const issuer = 'ClientMessenger';
+    const uri = `otpauth://totp/${encodeURIComponent(username)}?secret=${secret}&issuer=${encodeURIComponent(issuer)}`;
+    
+    // Простая генерация QR кода (используем внешний сервис для надежности)
+    // В production лучше использовать библиотеку типа 'qrcode'
+    return `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(uri)}`;
+}
+
+// ============================================================================
 // 🕒 Очистка сессий
 // ============================================================================
 function cleanupSessions() {
@@ -622,7 +834,8 @@ function handleLogin(ws, { username, password }, clientIp) {
             deviceId,
             ws,
             createdAt: Date.now(),
-            lastActivity: Date.now()
+            lastActivity: Date.now(),
+            twoFactorVerified: !user.twoFactorEnabled // Если 2FA выключен, считаем верифицированным
         };
 
         sessions.set(tokenId, session);
@@ -630,7 +843,7 @@ function handleLogin(ws, { username, password }, clientIp) {
         user.devices.set(deviceId, { ws, lastActivity: Date.now() });
         user.lastLogin = Date.now();
         user.status = 'online';
-        
+
         // 🔒 Сохраняем lastLogin в БД
         saveUserToDatabase(username, user).catch(err => {
             console.error('❌ Failed to save user login:', err);
@@ -638,16 +851,26 @@ function handleLogin(ws, { username, password }, clientIp) {
 
         console.log(`✅ Logged in: ${username} (${deviceId}) from ${clientIp}`);
 
-        ws.send(JSON.stringify({
-            type: 'login_success',
-            username,
-            deviceId,
-            token: tokenId,
-            isVisibleInDirectory: user.isVisibleInDirectory,
-            message: 'Вход выполнен успешно'
-        }));
-
-        broadcastUserList();
+        // 🔒 Если включен 2FA, отправляем запрос кода вместо полного входа
+        if (user.twoFactorEnabled) {
+            ws.send(JSON.stringify({
+                type: 'login_2fa_required',
+                username,
+                deviceId,
+                token: tokenId,
+                message: 'Требуется код 2FA'
+            }));
+        } else {
+            ws.send(JSON.stringify({
+                type: 'login_success',
+                username,
+                deviceId,
+                token: tokenId,
+                isVisibleInDirectory: user.isVisibleInDirectory,
+                message: 'Вход выполнен успешно'
+            }));
+            broadcastUserList();
+        }
     } catch (e) {
         console.error('❌ Login error:', e);
         ws.send(JSON.stringify({ type: 'login_error', message: 'Ошибка при входе' }));
@@ -675,21 +898,20 @@ function handleAutoLogin(ws, { username, token, deviceId }, clientIp) {
         return ws.send(JSON.stringify({ type: 'login_error', message: 'Пользователь не найден' }));
     }
 
-    // 🔒 Проверяем токен сессии в sessions
+    // 🔒 ПРОВЕРЯЕМ ТОКЕН СЕССИИ - только валидная сессия разрешает вход
     let validSession = null;
     for (const [tokenId, session] of sessions.entries()) {
-        if (session.username === username && session.tokenId === token) {
+        if (session.username === username && tokenId === token) {
             validSession = session;
             break;
         }
     }
 
-    // Если сессия не найдена, пробуем создать новую (для случая перезапуска сервера)
-    // В реальной ситуации здесь нужна проверка токена из БД
-    // Для простоты - создаём новую сессию если deviceId совпадает
-    if (!validSession && deviceId) {
-        // Разрешаем вход если deviceId совпадает (упрощённая логика)
-        console.log(`🔑 Auto-login with deviceId: ${username} (${deviceId})`);
+    // 🔒 Если сессия не найдена - ОТКАЗЫВАЕМ в доступе
+    // deviceId больше не используется для авто-входа без токена
+    if (!validSession) {
+        console.log(`🚫 Auto-login rejected: invalid token for ${username} from ${clientIp}`);
+        return ws.send(JSON.stringify({ type: 'login_error', message: 'Неверный токен сессии' }));
     }
 
     // Создание новой сессии для авто-входа
@@ -732,6 +954,87 @@ function handleAutoLogin(ws, { username, token, deviceId }, clientIp) {
         console.error('❌ Auto-login error:', e);
         ws.send(JSON.stringify({ type: 'login_error', message: 'Ошибка при автоматическом входе' }));
     }
+}
+
+/**
+ * 🔒 Верификация 2FA при входе
+ */
+function handleLogin2FA(ws, { username, token, deviceId, twoFactorToken, useBackupCode }, clientIp) {
+    if (!checkRateLimit(clientIp)) {
+        return ws.send(JSON.stringify({ type: 'login_error', message: 'Слишком много попыток. Подождите.' }));
+    }
+
+    if (!username || typeof username !== 'string' || !token || typeof token !== 'string') {
+        return ws.send(JSON.stringify({ type: 'login_error', message: 'Неверные данные' }));
+    }
+
+    if (!twoFactorToken || typeof twoFactorToken !== 'string') {
+        return ws.send(JSON.stringify({ type: 'login_error', message: 'Требуется 2FA код' }));
+    }
+
+    username = username.trim();
+    const user = users.get(username);
+
+    if (!user) {
+        return ws.send(JSON.stringify({ type: 'login_error', message: 'Пользователь не найден' }));
+    }
+
+    if (!user.twoFactorEnabled) {
+        return ws.send(JSON.stringify({ type: 'login_error', message: '2FA не включён' }));
+    }
+
+    // Проверяем 2FA код
+    let verified = false;
+    if (useBackupCode) {
+        verified = verifyBackupCode(user.twoFactorBackupCodes, twoFactorToken);
+    } else {
+        verified = verifyTOTP(user.twoFactorSecret, twoFactorToken);
+    }
+
+    if (!verified) {
+        console.log(`🚫 2FA failed for ${username} from ${clientIp}`);
+        return ws.send(JSON.stringify({ type: 'login_error', message: 'Неверный 2FA код' }));
+    }
+
+    // Находим сессию и помечаем как верифицированную
+    let session = null;
+    for (const [tokenId, s] of sessions.entries()) {
+        if (s.username === username && tokenId === token) {
+            session = s;
+            break;
+        }
+    }
+
+    if (!session) {
+        return ws.send(JSON.stringify({ type: 'login_error', message: 'Сессия не найдена' }));
+    }
+
+    // Помечаем сессию как верифицированную
+    session.twoFactorVerified = true;
+    session.lastActivity = Date.now();
+
+    // Если использовали резервный код, удаляем его
+    if (useBackupCode) {
+        user.twoFactorBackupCodes = removeBackupCode(user.twoFactorBackupCodes, twoFactorToken);
+        saveUserToDatabase(username, user).catch(err => {
+            console.error('❌ Failed to update backup codes:', err);
+        });
+    }
+
+    console.log(`✅ 2FA verified for ${username} from ${clientIp}`);
+
+    ws.send(JSON.stringify({
+        type: 'login_success',
+        username,
+        deviceId: session.deviceId,
+        token,
+        isVisibleInDirectory: user.isVisibleInDirectory,
+        twoFactorVerified: true,
+        remainingBackupCodes: user.twoFactorBackupCodes ? JSON.parse(user.twoFactorBackupCodes).length : 0,
+        message: 'Вход выполнен успешно'
+    }));
+
+    broadcastUserList();
 }
 
 function handleLogout(ws, tokenId, isDisconnect = false) {
@@ -817,24 +1120,39 @@ function validateFiles(files) {
         // Проверка размера
         if (file.size > MAX_FILE_SIZE) continue;
 
+        // 🔒 Проверка размера base64 данных (не более 4/3 от размера файла + overhead)
+        const maxBase64Size = Math.ceil(file.size * 4 / 3) + 1000;
+        if (file.data.length > maxBase64Size) {
+            console.warn(`🚫 File data too large: ${file.data.length} > ${maxBase64Size}`);
+            continue;
+        }
+
         // Проверка data URL
         if (!file.data.startsWith('data:')) continue;
+
+        // 🔒 Проверка на опасные MIME-типы
+        const lowerType = file.type.toLowerCase();
+        const dangerousTypes = ['text/html', 'application/javascript', 'application/x-javascript'];
+        if (dangerousTypes.includes(lowerType)) {
+            console.warn(`🚫 Dangerous file type blocked: ${file.type}`);
+            continue;
+        }
 
         // 🔒 Дополнительная проверка MIME-типа для изображений
         if (file.type.startsWith('image/')) {
             // Разрешаем только безопасные форматы изображений
             const allowedImageTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-            if (!allowedImageTypes.includes(file.type.toLowerCase())) {
+            if (!allowedImageTypes.includes(lowerType)) {
                 console.warn(`🚫 Disallowed image type: ${file.type}`);
                 continue;
             }
         }
-        
+
         // 🔒 Дополнительная проверка MIME-типа для видео
         if (file.type.startsWith('video/')) {
             // Разрешаем только безопасные форматы видео
             const allowedVideoTypes = ['video/mp4', 'video/webm', 'video/ogg'];
-            if (!allowedVideoTypes.includes(file.type.toLowerCase())) {
+            if (!allowedVideoTypes.includes(lowerType)) {
                 console.warn(`🚫 Disallowed video type: ${file.type}`);
                 continue;
             }
@@ -936,11 +1254,17 @@ function handleMessage(ws, sender, { text, privateTo, timestamp, encrypted, hint
                 }
             }
 
-            // ✨ ИЗМЕНЕНО: Отправляем подтверждение доставки отправителю
+            // ✨ Отправляем отправителю его сообщение для добавления в активные чаты
             ws.send(JSON.stringify({
-                type: 'message_confirmed',
+                type: 'receive_message',
+                sender,
+                text: trimmedText,
                 timestamp: message.timestamp,
-                confirmed: true
+                privateTo,
+                encrypted: encrypted || false,
+                hint: hint || null,
+                replyTo: replyTo || null,
+                files: validFiles
             }));
         } else {
             broadcast(message, ws);
@@ -1093,6 +1417,171 @@ function handleUpdateGroupInvitePermission(ws, username, { allow }) {
     }));
 
     console.log(`🔒 ${username} updated group invite permission: ${user.allowGroupInvite}`);
+}
+
+// ============================================================================
+// 🔒 2FA Обработчики
+// ============================================================================
+
+/**
+ * Настройка 2FA - генерация секрета и QR кода
+ */
+function handle2FASetup(ws, username) {
+    const user = users.get(username);
+    if (!user) return ws.send(JSON.stringify({ type: '2fa_error', message: 'Пользователь не найден' }));
+
+    // Генерируем новый секрет
+    const secret = generateTOTPSecret();
+    
+    // Сохраняем временно (пока не подтверждено)
+    user.tempTwoFactorSecret = secret;
+
+    // Генерируем QR код
+    const qrCodeUrl = generateQRCodeSVG(username, secret);
+
+    ws.send(JSON.stringify({
+        type: '2fa_setup_response',
+        secret,
+        qrCodeUrl,
+        uri: `otpauth://totp/${encodeURIComponent(username)}?secret=${secret}&issuer=ClientMessenger`
+    }));
+
+    console.log(`🔒 2FA setup initiated for ${username}`);
+}
+
+/**
+ * Включение 2FA - подтверждение кода
+ */
+function handle2FAEnable(ws, username, { token }) {
+    const user = users.get(username);
+    if (!user) return ws.send(JSON.stringify({ type: '2fa_error', message: 'Пользователь не найден' }));
+
+    const secret = user.tempTwoFactorSecret || user.twoFactorSecret;
+    if (!secret) {
+        return ws.send(JSON.stringify({ type: '2fa_error', message: 'Сначала настройте 2FA' }));
+    }
+
+    if (!verifyTOTP(secret, token)) {
+        return ws.send(JSON.stringify({ type: '2fa_error', message: 'Неверный код' }));
+    }
+
+    // Включаем 2FA
+    user.twoFactorSecret = secret;
+    user.twoFactorEnabled = true;
+    user.twoFactorBackupCodes = JSON.stringify(generateBackupCodes());
+    delete user.tempTwoFactorSecret;
+
+    // Сохраняем в БД
+    saveUserToDatabase(username, user).catch(err => {
+        console.error('❌ Failed to save 2FA settings:', err);
+    });
+
+    // Отправляем резервные коды
+    const backupCodes = JSON.parse(user.twoFactorBackupCodes);
+
+    ws.send(JSON.stringify({
+        type: '2fa_enabled',
+        backupCodes,
+        message: '2FA успешно включён'
+    }));
+
+    console.log(`🔒 2FA enabled for ${username}`);
+}
+
+/**
+ * Отключение 2FA
+ */
+function handle2FADisable(ws, username, { token, useBackupCode }) {
+    const user = users.get(username);
+    if (!user) return ws.send(JSON.stringify({ type: '2fa_error', message: 'Пользователь не найден' }));
+
+    if (!user.twoFactorEnabled) {
+        return ws.send(JSON.stringify({ type: '2fa_error', message: '2FA уже отключён' }));
+    }
+
+    // Проверяем код
+    let verified = false;
+    if (useBackupCode) {
+        verified = verifyBackupCode(user.twoFactorBackupCodes, token);
+    } else {
+        verified = verifyTOTP(user.twoFactorSecret, token);
+    }
+
+    if (!verified) {
+        return ws.send(JSON.stringify({ type: '2fa_error', message: 'Неверный код' }));
+    }
+
+    // Отключаем 2FA
+    user.twoFactorSecret = null;
+    user.twoFactorEnabled = false;
+    user.twoFactorBackupCodes = null;
+    delete user.tempTwoFactorSecret;
+
+    // Сохраняем в БД
+    saveUserToDatabase(username, user).catch(err => {
+        console.error('❌ Failed to disable 2FA:', err);
+    });
+
+    ws.send(JSON.stringify({
+        type: '2fa_disabled',
+        message: '2FA отключён'
+    }));
+
+    console.log(`🔒 2FA disabled for ${username}`);
+}
+
+/**
+ * Верификация 2FA кода (для входа)
+ */
+function handle2FAVerify(ws, username, { token, useBackupCode }) {
+    const user = users.get(username);
+    if (!user) return ws.send(JSON.stringify({ type: '2fa_error', message: 'Пользователь не найден' }));
+
+    if (!user.twoFactorEnabled) {
+        return ws.send(JSON.stringify({ type: '2fa_error', message: '2FA не включён' }));
+    }
+
+    let verified = false;
+    if (useBackupCode) {
+        verified = verifyBackupCode(user.twoFactorBackupCodes, token);
+        if (verified) {
+            // Удаляем использованный код
+            user.twoFactorBackupCodes = removeBackupCode(user.twoFactorBackupCodes, token);
+            saveUserToDatabase(username, user).catch(err => {
+                console.error('❌ Failed to update backup codes:', err);
+            });
+        }
+    } else {
+        verified = verifyTOTP(user.twoFactorSecret, token);
+    }
+
+    if (!verified) {
+        return ws.send(JSON.stringify({ type: '2fa_verify_error', message: 'Неверный код' }));
+    }
+
+    ws.send(JSON.stringify({
+        type: '2fa_verified',
+        message: 'Код подтверждён',
+        remainingBackupCodes: user.twoFactorBackupCodes ? JSON.parse(user.twoFactorBackupCodes).length : 0
+    }));
+}
+
+/**
+ * Показать резервные коды
+ */
+function handle2FABackupCodes(ws, username) {
+    const user = users.get(username);
+    if (!user) return ws.send(JSON.stringify({ type: '2fa_error', message: 'Пользователь не найден' }));
+
+    if (!user.twoFactorEnabled) {
+        return ws.send(JSON.stringify({ type: '2fa_error', message: '2FA не включён' }));
+    }
+
+    ws.send(JSON.stringify({
+        type: '2fa_backup_codes_response',
+        backupCodes: user.twoFactorBackupCodes ? JSON.parse(user.twoFactorBackupCodes) : [],
+        message: 'Резервные коды'
+    }));
 }
 
 // ✨ Обработка открытия чата
@@ -1439,16 +1928,32 @@ function notifyGroupMembers(group, type, data, excludeWs = null) {
  * Рассылка списка групп всем пользователям
  */
 function broadcastGroupList() {
-    const groupsList = Array.from(groups.values()).map(group => ({
-        id: group.id,
-        name: group.name,
-        creator: group.creator,
-        members: [...group.members],
-        createdAt: group.createdAt,
-        lastMessage: group.lastMessage
-    }));
+    // Для каждого пользователя формируем его список групп
+    for (const [username, user] of users.entries()) {
+        const userGroups = [];
+        for (const group of groups.values()) {
+            if (group.members.has(username)) {
+                userGroups.push({
+                    id: group.id,
+                    name: group.name,
+                    creator: group.creator,
+                    members: [...group.members],
+                    createdAt: group.createdAt,
+                    lastMessage: group.lastMessage
+                });
+            }
+        }
 
-    broadcast({ type: 'group_list_update', groups: groupsList });
+        // Отправляем список групп всем устройствам пользователя
+        for (const [_, device] of user.devices.entries()) {
+            if (device.ws?.readyState === WebSocket.OPEN) {
+                device.ws.send(JSON.stringify({
+                    type: 'group_list_update',
+                    groups: userGroups
+                }));
+            }
+        }
+    }
 }
 
 // ============================================================================
@@ -1495,9 +2000,20 @@ wss.on('connection', (ws, req) => {
         const session = tokenId ? sessions.get(tokenId) : null;
         const username = session?.username;
 
+        // 🔒 Проверка 2FA верификации для всех команд кроме login/register/auto_login/logout/2fa_*
+        const skip2FACheck = ['register', 'login', 'auto_login', 'logout', '2fa_setup', '2fa_enable', '2fa_disable', '2fa_verify', '2fa_backup_codes', 'login_2fa', 'ping', 'get_users'].includes(data.type);
+        if (session && !session.twoFactorVerified && !skip2FACheck) {
+            return ws.send(JSON.stringify({ 
+                type: 'login_2fa_required', 
+                message: 'Требуется верификация 2FA',
+                username: session.username
+            }));
+        }
+
         switch (data.type) {
             case 'register': handleRegister(ws, data, clientIp); break;
             case 'login': handleLogin(ws, data, clientIp); break;
+            case 'login_2fa': handleLogin2FA(ws, data, clientIp); break;
             case 'auto_login': handleAutoLogin(ws, data, clientIp); break;
             case 'logout':
                 if (!session) return ws.send(JSON.stringify({ type: 'error', message: 'Не авторизован' }));
@@ -1519,6 +2035,22 @@ wss.on('connection', (ws, req) => {
             // ✨ Обработка обновления разрешения на приглашение в группы
             case 'update_group_invite_permission':
                 if (session) handleUpdateGroupInvitePermission(ws, username, data);
+                break;
+            // 🔒 2FA команды
+            case '2fa_setup':
+                if (session) handle2FASetup(ws, username);
+                break;
+            case '2fa_enable':
+                if (session) handle2FAEnable(ws, username, data);
+                break;
+            case '2fa_disable':
+                if (session) handle2FADisable(ws, username, data);
+                break;
+            case '2fa_verify':
+                if (session) handle2FAVerify(ws, username, data);
+                break;
+            case '2fa_backup_codes':
+                if (session) handle2FABackupCodes(ws, username);
                 break;
             // 👥 Групповые чаты
             case 'create_group':

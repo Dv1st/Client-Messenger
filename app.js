@@ -79,7 +79,6 @@ const DOM = {
     sidebarTrigger: null,
     searchBox: null,
     usersList: null,
-    activeChatsList: null,
     groupsList: null, // 👥 Список групп
 
     // Чат
@@ -145,7 +144,7 @@ const DOM = {
 function initDOM() {
     const ids = [
         'loginWindow', 'chatWindow', 'settingsModal', 'sidebar', 'sidebarToggle',
-        'sidebarTrigger', 'searchBox', 'usersList', 'activeChatsList', 'groupsList',
+        'sidebarTrigger', 'searchBox', 'usersList', 'groupsList',
         'messagesList', 'inputPanel', 'chatPlaceholder', 'chatTitle', 'chatUserStatus', 'backBtn',
         'scrollToBottomBtn', 'unreadCount', 'messageBox', 'sendBtn', 'encryptCheckBox',
         'encryptKeyBox', 'decryptPanel', 'decryptKeyBox', 'decryptBtn', 'themeSelect',
@@ -585,21 +584,33 @@ function sendToServer(message) {
 // ============================================================================
 // 🔹 Обработка сообщений сервера
 // ============================================================================
+/**
+ * Обработка сообщений сервера
+ * @param {Object} data - Сообщение от сервера
+ */
 function handleServerMessage(data) {
     // 🔒 Строгая валидация входящих данных
     if (!data || typeof data !== 'object') {
         console.warn('⚠️ handleServerMessage: invalid data format');
         return;
     }
-    if (typeof data.type !== 'string') {
+    if (!data.type || typeof data.type !== 'string') {
         console.warn('⚠️ handleServerMessage: invalid type');
         return;
     }
 
     // 🔒 Защита от переполнения и подделки типа
-    if (data.type.length > 50) {
-        console.warn('⚠️ handleServerMessage: type too long');
+    if (data.type.length > 50 || !/^[a-z_]+$/.test(data.type)) {
+        console.warn('⚠️ handleServerMessage: invalid type format');
         return;
+    }
+
+    // 🔒 Проверка на XSS в текстовых полях
+    if (data.message && typeof data.message === 'string') {
+        if (/[<>\"'&]/.test(data.message)) {
+            console.warn('⚠️ handleServerMessage: potential XSS in message');
+            data.message = data.message.replace(/[<>\"'&]/g, '');
+        }
     }
 
     try {
@@ -642,11 +653,24 @@ function handleServerMessage(data) {
                 break;
             case 'register_error':
             case 'login_error':
+                // 🔒 Проверяем, была ли ошибка при 2FA входе
+                const login2FAForm = document.getElementById('login2FAForm');
+                if (login2FAForm) {
+                    handleLogin2FAError(sanitizeMessageText(data.message || 'Ошибка входа'));
+                } else {
+                    showStatus(sanitizeMessageText(data.message || 'Произошла ошибка'), true);
+                }
+                break;
             case 'error':
                 showStatus(sanitizeMessageText(data.message || 'Произошла ошибка'), true);
                 break;
             case 'login_success':
-                handleLoginSuccess(data);
+                // 🔒 Проверяем, был ли вход с 2FA
+                if (data.twoFactorVerified) {
+                    handleLogin2FASuccess(data);
+                } else {
+                    handleLoginSuccess(data);
+                }
                 break;
             case 'user_list':
                 if (Array.isArray(data.users)) {
@@ -676,11 +700,6 @@ function handleServerMessage(data) {
             case 'receive_message':
                 if (data.sender && data.text && data.timestamp) {
                     handleMessageReceive(data);
-                }
-                break;
-            case 'message_confirmed':
-                if (data.timestamp) {
-                    updateMessageDeliveryStatus(data.timestamp, 'sent');
                 }
                 break;
             case 'message_read_receipt':
@@ -746,6 +765,18 @@ function handleServerMessage(data) {
                 if (typeof data.allow === 'boolean') {
                     allowGroupInvite = data.allow;
                 }
+                break;
+            // 🔐 2FA сообщения
+            case '2fa_setup_response':
+            case '2fa_enabled':
+            case '2fa_disabled':
+            case '2fa_error':
+            case '2fa_verify_error':
+            case '2fa_backup_codes_response':
+                handleTwoFAMessage(data);
+                break;
+            case 'login_2fa_required':
+                handleLogin2FARequired(data);
                 break;
             default:
                 // Игнорируем неизвестные типы сообщений
@@ -848,8 +879,8 @@ function updateMessageDeliveryStatus(timestamp, status) {
 // 🔹 Входящие сообщения
 // ============================================================================
 function handleMessageReceive(data) {
-    // Валидация входящих данных
-    if (!data.sender || typeof data.sender !== 'string') {
+    // 🔒 Строгая валидация входящих данных
+    if (!data.sender || typeof data.sender !== 'string' || data.sender.length > USERNAME_MAX_LENGTH) {
         console.warn('⚠️ handleMessageReceive: invalid sender');
         return;
     }
@@ -862,6 +893,31 @@ function handleMessageReceive(data) {
     if (!data.timestamp || typeof data.timestamp !== 'number') {
         console.warn('⚠️ handleMessageReceive: invalid timestamp');
         return;
+    }
+
+    // 🔒 Проверка на XSS в sender
+    if (/[<>\"'&]/.test(data.sender)) {
+        console.warn('⚠️ handleMessageReceive: XSS in sender');
+        return;
+    }
+
+    // 🔒 Валидация файлов если они есть
+    if (data.files) {
+        if (!Array.isArray(data.files)) {
+            console.warn('⚠️ handleMessageReceive: files is not an array');
+            data.files = null;
+        } else {
+            // Валидируем каждый файл
+            data.files = data.files.filter(f => 
+                f && 
+                typeof f === 'object' && 
+                typeof f.name === 'string' && 
+                typeof f.type === 'string' &&
+                typeof f.data === 'string' &&
+                typeof f.size === 'number'
+            );
+            if (data.files.length === 0) data.files = null;
+        }
     }
 
     const messageData = {
@@ -878,17 +934,20 @@ function handleMessageReceive(data) {
 
     const chatName = data.privateTo || 'general';
 
-    // Сохраняем сообщение
+    // Сохраняем сообщение и добавляем чат в активные
     try {
         if (data.privateTo && data.privateTo === currentUser) {
+            // Сообщение получено от другого пользователя
             saveMessageToStorage(data.sender, messageData);
-            // ✨ Добавляем чат в активные
+            // ✨ Добавляем чат с отправителем в активные
             addChatToActive(data.sender);
         } else if (data.sender === currentUser && data.privateTo) {
+            // Сообщение отправлено текущим пользователем другому
             saveMessageToStorage(data.privateTo, messageData);
-            // ✨ Добавляем чат в активные
+            // ✨ Добавляем чат с получателем в активные
             addChatToActive(data.privateTo);
         } else {
+            // Групповое или общее сообщение
             saveMessageToStorage(chatName, messageData);
         }
     } catch (e) {
@@ -902,6 +961,11 @@ function handleMessageReceive(data) {
             addMessage(messageData);
         } else {
             addMessage(messageData, false, false);
+        }
+
+        // ✨ Обновляем статус доставки для собственного сообщения
+        if (data.sender === currentUser && data.privateTo) {
+            updateMessageDeliveryStatus(data.timestamp, 'sent');
         }
 
         if (data.privateTo && data.sender !== currentUser) {
@@ -1065,6 +1129,15 @@ function initSidebar() {
         }
     }
 
+    // ➕ Кнопка создания группы
+    const createGroupBtn = document.getElementById('createGroupBtn');
+    if (createGroupBtn) {
+        createGroupBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            openCreateGroupModal();
+        });
+    }
+
     // 👥 Контекстное меню по ПКМ на секции групп для создания группы
     const groupsSection = document.querySelector('.groups-section');
     if (groupsSection) {
@@ -1147,32 +1220,6 @@ function initUserListEvents() {
         e.preventDefault();
         const username = userItem.dataset.username;
         if (username) showFolderContextMenu(e, username);
-    });
-
-    // Делегирование для активных чатов
-    DOM.activeChatsList?.addEventListener('click', (e) => {
-        const chatItem = e.target.closest('.active-chat-item');
-        if (!chatItem) return;
-
-        const username = chatItem.dataset.username;
-        if (!username) return;
-
-        // Клик по кнопке закрепить
-        if (e.target.closest('.pin-btn')) {
-            e.stopPropagation();
-            togglePin(username);
-            return;
-        }
-
-        // Клик по кнопке удалить чат
-        if (e.target.closest('.delete-btn')) {
-            e.stopPropagation();
-            deleteChat(username, chatItem);
-            return;
-        }
-
-        // Клик по элементу чата
-        selectUser(username);
     });
 
     // 👥 Делегирование для списка групп
@@ -1333,15 +1380,24 @@ function updateUsersList(serverUsers) {
             console.warn('⚠️ updateUsersList: serverUsers is not an array');
             return;
         }
-        
+
         const serverUserNames = new Set(serverUsers.map(u => u.username || u.name));
+
+        // ✨ Сохраняем локальные activeChat перед обновлением
+        const localActiveChats = new Map();
+        users.forEach(u => {
+            if (u.activeChat) {
+                localActiveChats.set(u.name, u.activeChat);
+            }
+        });
 
         users.forEach(user => {
             if (serverUserNames.has(user.name)) {
                 const serverUser = serverUsers.find(u => (u.username || u.name) === user.name);
                 if (serverUser) {
                     user.status = serverUser.status || (serverUser.online ? 'online' : 'offline');
-                    user.activeChat = serverUser.activeChat || null;
+                    // ✨ Не перезаписываем activeChat с сервера, сохраняем локальный
+                    user.activeChat = localActiveChats.get(user.name) || serverUser.activeChat || null;
                     user.isVisibleInDirectory = serverUser.isVisibleInDirectory !== false;
                     user.allowGroupInvite = serverUser.allowGroupInvite || false; // 👥
                 }
@@ -1355,7 +1411,8 @@ function updateUsersList(serverUsers) {
                     name,
                     isPinned: false,
                     status: serverUser.status || (serverUser.online ? 'online' : 'offline'),
-                    activeChat: serverUser.activeChat || null,
+                    // ✨ Сохраняем локальный activeChat если есть
+                    activeChat: localActiveChats.get(name) || serverUser.activeChat || null,
                     isVisibleInDirectory: serverUser.isVisibleInDirectory !== false,
                     allowGroupInvite: serverUser.allowGroupInvite || false // 👥
                 });
@@ -1384,7 +1441,10 @@ function updateUserStatus(username, status, activeChat = null) {
     const user = users.find(u => u.name === username);
     if (user) {
         user.status = status;
-        user.activeChat = activeChat;
+        // ✨ Сохраняем activeChat если он передан, иначе оставляем текущий
+        if (activeChat !== undefined) {
+            user.activeChat = activeChat;
+        }
         saveUsersToStorage();
         renderUsers();
 
@@ -1392,7 +1452,7 @@ function updateUserStatus(username, status, activeChat = null) {
         if (selectedUser === username) {
             updateChatUserStatus(username);
         }
-        
+
         // 🔒 Если пользователь offline и был в чате с кем-то, обновляем activeChat
         if (status === 'offline' && activeChat === null) {
             // Находим всех пользователей, у кого activeChat === username и сбрасываем
@@ -1403,7 +1463,6 @@ function updateUserStatus(username, status, activeChat = null) {
             });
             saveUsersToStorage();
             renderUsers();
-            renderActiveChats();
         }
     }
 }
@@ -1454,7 +1513,7 @@ function getLastMessageEmoji(username) {
 }
 
 /**
- * Рендеринг списка пользователей
+ * Рендеринг списка пользователей (объединённый с активными чатами)
  * Безопасная вставка данных с использованием textContent
  */
 function renderUsers() {
@@ -1464,7 +1523,27 @@ function renderUsers() {
     const searchQuery = DOM.searchBox ? DOM.searchBox.value.toLowerCase().trim() : '';
     const fragment = document.createDocumentFragment();
 
-    users.forEach(userObj => {
+    // ✨ Сортируем: сначала активные чаты (с кем идёт переписка), потом остальные
+    const sortedUsers = [...users].sort((a, b) => {
+        if (a.name === currentUser) return 0;
+        if (b.name === currentUser) return 0;
+        
+        const aIsActive = a.activeChat === currentUser;
+        const bIsActive = b.activeChat === currentUser;
+        
+        if (aIsActive && !bIsActive) return -1;
+        if (!aIsActive && bIsActive) return 1;
+        
+        // Внутри активных сортируем по статусу (онлайн primero)
+        if (aIsActive && bIsActive) {
+            if (a.status === 'online' && b.status !== 'online') return -1;
+            if (a.status !== 'online' && b.status === 'online') return 1;
+        }
+        
+        return 0;
+    });
+
+    sortedUsers.forEach(userObj => {
         if (userObj.name === currentUser) return;
 
         // Показываем только пользователей с visibility: true или точное совпадение
@@ -1474,7 +1553,10 @@ function renderUsers() {
         }
 
         const item = document.createElement('div');
-        item.className = 'user-item' + (selectedUser === userObj.name ? ' selected' : '');
+        
+        // ✨ Добавляем класс active-chat-item если это активный чат
+        const isActiveChat = userObj.activeChat === currentUser;
+        item.className = 'user-item' + (selectedUser === userObj.name ? ' selected' : '') + (isActiveChat ? ' active-chat' : '');
         item.dataset.username = userObj.name;
 
         // Определяем класс статуса (для CSS)
@@ -1505,8 +1587,23 @@ function renderUsers() {
         nameEl.style.cursor = 'pointer';
         nameEl.title = 'Клик: выбрать пользователя | Двойной клик: открыть профиль';
 
+        // ✨ Добавляем индикатор активного чата
+        if (isActiveChat) {
+            const activeIndicator = document.createElement('span');
+            activeIndicator.className = 'active-chat-indicator';
+            activeIndicator.textContent = '💬';
+            activeIndicator.setAttribute('aria-hidden', 'true');
+            activeIndicator.title = 'Активный чат';
+            item.insertBefore(activeIndicator, statusEl);
+        }
+
         item.appendChild(statusEl);
         item.appendChild(nameEl);
+
+        // Клик для выбора пользователя
+        item.addEventListener('click', () => {
+            selectUser(userObj.name);
+        });
 
         // Двойной клик для открытия профиля
         item.addEventListener('dblclick', (e) => {
@@ -1518,98 +1615,6 @@ function renderUsers() {
     });
 
     DOM.usersList.appendChild(fragment);
-    renderActiveChats();
-}
-
-/**
- * Рендеринг активных чатов
- */
-function renderActiveChats() {
-    if (!DOM.activeChatsList) return;
-
-    DOM.activeChatsList.innerHTML = '';
-
-    // ✨ Показываем только тех пользователей, у кого activeChat === currentUser
-    // (с кем активно ведётся переписка)
-    const activeChats = users.filter(u =>
-        u.name !== currentUser &&
-        u.activeChat === currentUser
-    );
-
-    if (activeChats.length === 0) {
-        DOM.activeChatsList.style.display = 'none';
-        return;
-    }
-
-    DOM.activeChatsList.style.display = 'block';
-    const fragment = document.createDocumentFragment();
-
-    activeChats.forEach(userObj => {
-        const item = document.createElement('div');
-        item.className = 'active-chat-item';
-        item.dataset.username = userObj.name;
-
-        // Отображаем статус вместо смайлика чата
-        const chatIcon = document.createElement('span');
-        chatIcon.className = 'chat-icon';
-        chatIcon.setAttribute('aria-hidden', 'true');
-
-        // Показываем статус пользователя
-        if (userObj.status === 'online') {
-            chatIcon.textContent = '🟢';
-            chatIcon.title = 'Онлайн';
-        } else if (userObj.status === 'in_chat') {
-            chatIcon.textContent = '🔵';
-            chatIcon.title = 'В чате';
-        } else {
-            chatIcon.textContent = '⚫';
-            chatIcon.title = 'Офлайн';
-        }
-
-        const chatName = document.createElement('span');
-        chatName.className = 'chat-name';
-        chatName.textContent = userObj.name;
-
-        // ✨ Счётчик непрочитанных
-        const unreadCount = getUnreadMessagesCount(userObj.name);
-        if (unreadCount > 0) {
-            const unreadBadge = document.createElement('span');
-            unreadBadge.className = 'unread-badge';
-            unreadBadge.textContent = unreadCount > 99 ? '99+' : unreadCount;
-            chatName.appendChild(unreadBadge);
-        }
-
-        // Кнопки действий
-        const actionButtons = document.createElement('div');
-        actionButtons.className = 'chat-actions';
-
-        // Кнопка закрепить
-        const pinBtn = document.createElement('button');
-        pinBtn.className = 'chat-action-btn pin-btn' + (userObj.isPinned ? ' pinned' : '');
-        pinBtn.type = 'button';
-        pinBtn.textContent = '📌';
-        pinBtn.title = 'Закрепить';
-        pinBtn.setAttribute('aria-label', 'Закрепить чат');
-
-        // Кнопка удалить чат
-        const deleteBtn = document.createElement('button');
-        deleteBtn.className = 'chat-action-btn delete-btn';
-        deleteBtn.type = 'button';
-        deleteBtn.textContent = '🗑️';
-        deleteBtn.title = 'Удалить чат';
-        deleteBtn.setAttribute('aria-label', 'Удалить чат');
-
-        actionButtons.appendChild(pinBtn);
-        actionButtons.appendChild(deleteBtn);
-
-        item.appendChild(chatIcon);
-        item.appendChild(chatName);
-        item.appendChild(actionButtons);
-
-        fragment.appendChild(item);
-    });
-
-    DOM.activeChatsList.appendChild(fragment);
 }
 
 /**
@@ -1682,7 +1687,7 @@ function incrementUnreadCount(username) {
 
 /**
  * ✨ Пометить сообщения от пользователя как прочитанные
- * @param {string} username - Имя пользователя
+ * @param {string} username - Имя пользо����ателя
  */
 function markMessagesAsRead(username) {
     try {
@@ -1705,12 +1710,12 @@ function markMessagesAsRead(username) {
             localStorage.setItem(key, JSON.stringify(messages));
         }
     } catch (e) {
-        console.error('❌ Mark as read error:', e);
+        console.error('���� Mark as read error:', e);
     }
 }
 
 /**
- * Обновление выделения выбранного пользователя
+ * Обновление выделения выбранного поль��ователя
  * @param {string|null} username - Имя пользователя или null
  */
 function updateUserItemSelection(username) {
@@ -1727,7 +1732,7 @@ function updateUserItemSelection(username) {
 }
 
 /**
- * Обновление статуса пользователя в заголовке
+ * Обновление статуса ��ользователя в заголовке
  * @param {string} username - Имя поль�����ователя (собесед��ика!)
  */
 function updateChatUserStatus(username) {
@@ -1948,6 +1953,8 @@ function renderGroups() {
         const groupName = document.createElement('span');
         groupName.className = 'group-name';
         groupName.textContent = group.name;
+        groupName.style.cursor = 'pointer';
+        groupName.title = 'Открыть чат группы';
 
         // Кнопки действий
         const actionButtons = document.createElement('div');
@@ -1961,8 +1968,17 @@ function renderGroups() {
             deleteBtn.textContent = '🗑️';
             deleteBtn.title = 'Удалить группу';
             deleteBtn.setAttribute('aria-label', 'Удалить группу');
+            deleteBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                deleteGroup(group.id, group.name);
+            });
             actionButtons.appendChild(deleteBtn);
         }
+
+        // Клик по группе для открытия чата
+        item.addEventListener('click', () => {
+            selectGroup(group.id);
+        });
 
         item.appendChild(groupIcon);
         item.appendChild(groupName);
@@ -2068,6 +2084,9 @@ function showCreateGroupModal() {
 
     DOM.createGroupModal.classList.remove('hidden');
 }
+
+// Алиас для совместимости
+const openCreateGroupModal = showCreateGroupModal;
 
 /**
  * Рендеринг выбора участников группы
@@ -3454,7 +3473,7 @@ function updateMessageReactions(messageEl, reactions) {
  * Копировать текст сообщения
  */
 function copyMessageText(text) {
-    const cleanText = text.replace(/🔒 Зашифровано.*/g, '').trim();
+    const cleanText = text.replace(/🔒 Заш����фровано.*/g, '').trim();
     
     // Проверяем поддержку Clipboard API
     if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -3924,48 +3943,81 @@ function createFileHtml(fileData) {
     const { type, name, size, data } = fileData;
     const sizeStr = formatFileSize(size);
 
+    // 🔒 Безопасное создание элементов без innerHTML
+    const container = document.createElement('div');
+
     if (type.startsWith('image/')) {
-        return `
-            <div class="message-file message-file-image">
-                <img src="${data}" alt="${escapeHtml(name)}" title="${escapeHtml(name)} (${sizeStr})">
-            </div>
-        `;
+        // Изображение
+        container.className = 'message-file message-file-image';
+        const img = document.createElement('img');
+        img.src = data;
+        img.alt = escapeHtml(name);
+        img.title = `${escapeHtml(name)} (${sizeStr})`;
+        container.appendChild(img);
+        return container.outerHTML;
     }
 
     if (type.startsWith('video/')) {
-        return `
-            <div class="message-file message-file-video">
-                <video controls title="${escapeHtml(name)} (${sizeStr})">
-                    <source src="${data}" type="${escapeHtml(type)}">
-                </video>
-            </div>
-        `;
+        // Видео
+        container.className = 'message-file message-file-video';
+        const video = document.createElement('video');
+        video.controls = true;
+        video.title = `${escapeHtml(name)} (${sizeStr})`;
+        const source = document.createElement('source');
+        source.src = data;
+        source.type = escapeHtml(type);
+        video.appendChild(source);
+        container.appendChild(video);
+        return container.outerHTML;
     }
 
     if (type.startsWith('audio/')) {
-        return `
-            <div class="message-file message-file-audio">
-                <audio controls title="${escapeHtml(name)} (${sizeStr})">
-                    <source src="${data}" type="${escapeHtml(type)}">
-                </audio>
-            </div>
-        `;
+        // Аудио
+        container.className = 'message-file message-file-audio';
+        const audio = document.createElement('audio');
+        audio.controls = true;
+        audio.title = `${escapeHtml(name)} (${sizeStr})`;
+        const source = document.createElement('source');
+        source.src = data;
+        source.type = escapeHtml(type);
+        audio.appendChild(source);
+        container.appendChild(audio);
+        return container.outerHTML;
     }
 
     // Для остальных файлов
+    container.className = 'message-file message-file-generic';
     const icon = getFileIcon(type);
-    return `
-        <div class="message-file message-file-generic">
-            <span class="file-icon">${icon}</span>
-            <div class="file-details">
-                <span class="file-name">${escapeHtml(name)}</span>
-                <span class="file-size">${sizeStr}</span>
-            </div>
-            <a href="${data}" download="${escapeHtml(name)}" class="download-file-btn" title="Скачать">
-                ⬇️ Скачать
-            </a>
-        </div>
-    `;
+    
+    const iconSpan = document.createElement('span');
+    iconSpan.className = 'file-icon';
+    iconSpan.textContent = icon;
+    container.appendChild(iconSpan);
+    
+    const detailsDiv = document.createElement('div');
+    detailsDiv.className = 'file-details';
+    
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'file-name';
+    nameSpan.textContent = escapeHtml(name);
+    detailsDiv.appendChild(nameSpan);
+    
+    const sizeSpan = document.createElement('span');
+    sizeSpan.className = 'file-size';
+    sizeSpan.textContent = sizeStr;
+    detailsDiv.appendChild(sizeSpan);
+    
+    container.appendChild(detailsDiv);
+    
+    const downloadLink = document.createElement('a');
+    downloadLink.href = data;
+    downloadLink.download = escapeHtml(name);
+    downloadLink.className = 'download-file-btn';
+    downloadLink.title = 'Скачать';
+    downloadLink.textContent = '⬇️ Скачать';
+    container.appendChild(downloadLink);
+    
+    return container.outerHTML;
 }
 
 // ============================================================================
@@ -4025,194 +4077,6 @@ function xorDecrypt(encryptedBase64, passphrase) {
 function generateHint(passphrase) {
     if (!passphrase || passphrase.length < 2) return '??';
     return passphrase.substring(0, 2) + '*'.repeat(Math.max(0, passphrase.length - 2));
-}
-
-// ============================================================================
-// 🔹 Уведомления
-// ============================================================================
-function playNotificationSound() {
-    if (!soundEnabled || !DOM.notificationSound) return;
-    
-    try {
-        DOM.notificationSound.currentTime = 0;
-        DOM.notificationSound.volume = 0.5;
-        const playPromise = DOM.notificationSound.play();
-        
-        if (playPromise !== undefined) {
-            playPromise.catch(err => {
-                // Игнорируем ошибки автовоспроизведения
-                if (err.name !== 'NotAllowedError') {
-                    console.warn('⚠️ Sound play error:', err.message);
-                }
-            });
-        }
-    } catch (e) {
-        console.warn('⚠️ Sound error:', e.message);
-    }
-}
-
-function requestAudioPermission() {
-    if (DOM.notificationSound) {
-        DOM.notificationSound.play().then(() => {
-            DOM.notificationSound.pause();
-            DOM.notificationSound.currentTime = 0;
-        }).catch(() => {});
-    }
-}
-
-function showBrowserNotification(data) {
-    if (!DOM.pushNotify || !DOM.pushNotify.checked) return;
-
-    // Проверяем поддержку Notification API
-    if (!('Notification' in window)) {
-        console.warn('⚠️ Notifications not supported');
-        return;
-    }
-
-    if (Notification.permission === 'granted') {
-        try {
-            new Notification('Client Messenger', {
-                body: data.sender + ': ' + (data.encrypted ? '🔒 Зашифрованное' : data.text.substring(0, 50)),
-                icon: '🔔',
-                tag: data.sender, // Группировка уведомлений
-                requireInteraction: false
-            });
-        } catch (e) {
-            console.error('❌ Notification error:', e);
-        }
-    } else if (Notification.permission !== 'denied') {
-        Notification.requestPermission().then(permission => {
-            if (permission === 'granted' && DOM.pushNotify) {
-                DOM.pushNotify.checked = true;
-                saveSettings();
-            } else if (permission === 'denied') {
-                DOM.pushNotify.checked = false;
-                saveSettings();
-            }
-        }).catch(err => console.warn('⚠️ Permission error:', err));
-    }
-}
-
-// ============================================================================
-// 🔹 Настройки
-// ============================================================================
-function initSettings() {
-    const settingsBtn = document.getElementById('settingsBtn');
-    const closeSettings = document.getElementById('closeSettings');
-    const logoutBtn = document.getElementById('logoutBtn');
-
-    if (settingsBtn) settingsBtn.addEventListener('click', () => {
-        if (DOM.settingsModal) {
-            syncSettingsUI();
-            DOM.settingsModal.classList.remove('hidden');
-        }
-    });
-
-    if (closeSettings) closeSettings.addEventListener('click', () => {
-        if (DOM.settingsModal) DOM.settingsModal.classList.add('hidden');
-    });
-
-    if (DOM.settingsModal) {
-        DOM.settingsModal.addEventListener('click', (e) => {
-            if (e.target === DOM.settingsModal) DOM.settingsModal.classList.add('hidden');
-        });
-    }
-
-    if (logoutBtn) {
-        logoutBtn.addEventListener('click', () => {
-            if (confirm('🚪 Выйти из аккаунта?')) performLogout();
-        });
-    }
-
-    if (DOM.soundNotify) {
-        DOM.soundNotify.addEventListener('change', (e) => {
-            soundEnabled = e.target.checked;
-            saveSettings();
-            if (soundEnabled) playNotificationSound();
-        });
-    }
-
-    if (DOM.pushNotify) {
-        DOM.pushNotify.addEventListener('change', (e) => {
-            if (e.target.checked) {
-                Notification.requestPermission().then(p => {
-                    if (p !== 'granted') {
-                        DOM.pushNotify.checked = false;
-                        alert('⚠️ Разрешение не получено');
-                    }
-                });
-            }
-        });
-    }
-
-    if (DOM.fontSizeSelect) {
-        DOM.fontSizeSelect.addEventListener('change', (e) => {
-            const size = e.target.value;
-            document.body.classList.remove('font-small', 'font-medium', 'font-large');
-            document.body.classList.add('font-' + (size === '12' ? 'small' : size === '16' ? 'large' : 'medium'));
-            saveSettings();
-        });
-    }
-
-    if (DOM.themeSelect) {
-        DOM.themeSelect.addEventListener('change', (e) => {
-            document.documentElement.setAttribute('data-theme', e.target.value);
-            saveSettings();
-        });
-    }
-
-    if (DOM.accentColorSelect) {
-        DOM.accentColorSelect.addEventListener('change', (e) => {
-            const color = e.target.value;
-            document.documentElement.style.setProperty('--accent', color);
-            document.documentElement.style.setProperty('--accent-hover', adjustColorBrightness(color, 20));
-            saveSettings();
-        });
-    }
-
-    if (DOM.messageColorSelect) {
-        DOM.messageColorSelect.addEventListener('change', (e) => {
-            const color = e.target.value;
-            document.documentElement.style.setProperty('--own-message-bg', color);
-            saveSettings();
-        });
-    }
-
-    if (DOM.showInDirectory) {
-        DOM.showInDirectory.addEventListener('change', (e) => {
-            isVisibleInDirectory = e.target.checked;
-            saveSettings();
-            sendToServer({ type: 'update_visibility', isVisible: isVisibleInDirectory });
-        });
-    }
-
-    // ✨ Обработка настройки для групповых чатов
-    if (DOM.allowGroupInvite) {
-        DOM.allowGroupInvite.addEventListener('change', (e) => {
-            allowGroupInvite = e.target.checked;
-            saveSettings();
-            // Отправляем на сервер обновление
-            sendToServer({ type: 'update_group_invite_permission', allow: allowGroupInvite });
-        });
-    }
-
-    // 👥 Инициализация модального окна создания группы
-    const closeCreateGroup = document.getElementById('closeCreateGroup');
-    if (closeCreateGroup) {
-        closeCreateGroup.addEventListener('click', () => {
-            if (DOM.createGroupModal) DOM.createGroupModal.classList.add('hidden');
-        });
-    }
-
-    if (DOM.createGroupModal) {
-        DOM.createGroupModal.addEventListener('click', (e) => {
-            if (e.target === DOM.createGroupModal) DOM.createGroupModal.classList.add('hidden');
-        });
-    }
-
-    if (DOM.createGroupConfirmBtn) {
-        DOM.createGroupConfirmBtn.addEventListener('click', createGroup);
-    }
 }
 
 // ============================================================================
@@ -5253,7 +5117,7 @@ function xorDecrypt(encryptedText, key) {
             result += String.fromCharCode(hex);
         }
 
-        // XOR расшифрование
+        // XOR расшифр��вание
         let decrypted = '';
         const keyLength = key.length;
 
@@ -5266,7 +5130,7 @@ function xorDecrypt(encryptedText, key) {
         return decrypted;
     } catch (e) {
         console.error('❌ Decrypt error:', e);
-        return '❌ Ошибка расшифровки';
+        return '❌ Ошиб��а расшифровки';
     }
 }
 
@@ -5316,7 +5180,7 @@ function decryptMessage() {
     // Проверяем правильность ключа по подсказке
     const expectedHint = generateHint(key);
     if (hint && expectedHint !== hint) {
-        alert('⚠️ Неверный ключ! Подсказка: ' + hint);
+        alert('⚠️ Неверный ключ! ��одсказка: ' + hint);
         return;
     }
 
@@ -5472,5 +5336,393 @@ function initSettings() {
 
     if (DOM.createGroupConfirmBtn) {
         DOM.createGroupConfirmBtn.addEventListener('click', createGroup);
+    }
+
+    // 🔐 Инициализация 2FA
+    initTwoFactor();
+}
+
+// ============================================================================
+// 🔐 Двухфакторная аутентификация (2FA)
+// ============================================================================
+
+let twoFactorState = {
+    enabled: false,
+    secret: '',
+    backupCodes: [],
+    isSettingUp: false
+};
+
+function initTwoFactor() {
+    const twoFactorBtn = document.getElementById('twoFactorBtn');
+    const closeTwoFactor = document.getElementById('closeTwoFactor');
+    const twoFactorModal = document.getElementById('twoFactorModal');
+    const enableTwoFactorBtn = document.getElementById('enableTwoFactorBtn');
+    const twoFactorCodeInput = document.getElementById('twoFactorCodeInput');
+    const copySecretBtn = document.getElementById('copySecretBtn');
+    const downloadBackupCodesBtn = document.getElementById('downloadBackupCodesBtn');
+    const closeTwoFactorAfterSetup = document.getElementById('closeTwoFactorAfterSetup');
+    const disableTwoFactorBtn = document.getElementById('disableTwoFactorBtn');
+    const cancelDisableTwoFactor = document.getElementById('cancelDisableTwoFactor');
+    const disableTwoFactorCodeInput = document.getElementById('disableTwoFactorCodeInput');
+    const useBackupCodeCheckbox = document.getElementById('useBackupCodeCheckbox');
+
+    // Открытие модального окна
+    if (twoFactorBtn) {
+        twoFactorBtn.addEventListener('click', () => {
+            if (twoFactorState.enabled) {
+                // Показываем шаг отключения
+                showTwoFactorStep(3);
+            } else {
+                // Начинаем настройку
+                setupTwoFactor();
+            }
+            if (twoFactorModal) twoFactorModal.classList.remove('hidden');
+        });
+    }
+
+    // Закрытие модального окна
+    if (closeTwoFactor) {
+        closeTwoFactor.addEventListener('click', () => {
+            if (twoFactorModal) twoFactorModal.classList.add('hidden');
+            showTwoFactorMessage('');
+        });
+    }
+
+    if (twoFactorModal) {
+        twoFactorModal.addEventListener('click', (e) => {
+            if (e.target === twoFactorModal) twoFactorModal.classList.add('hidden');
+        });
+    }
+
+    // Настройка 2FA
+    if (enableTwoFactorBtn) {
+        enableTwoFactorBtn.addEventListener('click', enableTwoFactor);
+    }
+
+    if (twoFactorCodeInput) {
+        twoFactorCodeInput.addEventListener('input', (e) => {
+            e.target.value = e.target.value.replace(/[^0-9]/g, '');
+        });
+        twoFactorCodeInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') enableTwoFactor();
+        });
+    }
+
+    // Копирование секрета
+    if (copySecretBtn) {
+        copySecretBtn.addEventListener('click', () => {
+            const secret = document.getElementById('twoFactorSecret')?.textContent;
+            if (secret && secret !== '---') {
+                navigator.clipboard.writeText(secret).then(() => {
+                    showTwoFactorMessage('Секрет скопирован', false);
+                });
+            }
+        });
+    }
+
+    // Скачивание резервных кодов
+    if (downloadBackupCodesBtn) {
+        downloadBackupCodesBtn.addEventListener('click', downloadBackupCodes);
+    }
+
+    // Закрытие после настройки
+    if (closeTwoFactorAfterSetup) {
+        closeTwoFactorAfterSetup.addEventListener('click', () => {
+            if (twoFactorModal) twoFactorModal.classList.add('hidden');
+            updateTwoFactorUI();
+        });
+    }
+
+    // Отключение 2FA
+    if (disableTwoFactorBtn) {
+        disableTwoFactorBtn.addEventListener('click', disableTwoFactor);
+    }
+
+    if (cancelDisableTwoFactor) {
+        cancelDisableTwoFactor.addEventListener('click', () => {
+            showTwoFactorStep(1);
+        });
+    }
+
+    if (disableTwoFactorCodeInput) {
+        disableTwoFactorCodeInput.addEventListener('input', (e) => {
+            e.target.value = e.target.value.replace(/[^0-9]/g, '');
+        });
+        disableTwoFactorCodeInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') disableTwoFactor();
+        });
+    }
+}
+
+function showTwoFactorStep(step) {
+    const step1 = document.getElementById('twoFactorStep1');
+    const step2 = document.getElementById('twoFactorStep2');
+    const step3 = document.getElementById('twoFactorStep3');
+
+    if (step1) step1.classList.add('hidden');
+    if (step2) step2.classList.add('hidden');
+    if (step3) step3.classList.add('hidden');
+
+    const stepEl = document.getElementById('twoFactorStep' + step);
+    if (stepEl) stepEl.classList.remove('hidden');
+
+    showTwoFactorMessage('');
+}
+
+function showTwoFactorMessage(message, isError = true) {
+    const msgEl = document.getElementById('twoFactorMessage');
+    if (!msgEl) return;
+
+    msgEl.textContent = message;
+    msgEl.style.color = isError ? 'var(--error)' : 'var(--success)';
+
+    if (message) {
+        setTimeout(() => {
+            msgEl.textContent = '';
+        }, 5000);
+    }
+}
+
+function setupTwoFactor() {
+    showTwoFactorStep(1);
+    twoFactorState.isSettingUp = true;
+
+    sendToServer({ type: '2fa_setup' });
+}
+
+function enableTwoFactor() {
+    const codeInput = document.getElementById('twoFactorCodeInput');
+    const token = codeInput?.value.trim();
+
+    if (!token || token.length !== 6) {
+        showTwoFactorMessage('Введите 6-значный код', true);
+        return;
+    }
+
+    sendToServer({
+        type: '2fa_enable',
+        token
+    });
+}
+
+function disableTwoFactor() {
+    const codeInput = document.getElementById('disableTwoFactorCodeInput');
+    const backupCheckbox = document.getElementById('useBackupCodeCheckbox');
+    const token = codeInput?.value.trim();
+
+    if (!token || token.length !== 6) {
+        showTwoFactorMessage('Введите 6-значный код', true);
+        return;
+    }
+
+    sendToServer({
+        type: '2fa_disable',
+        token,
+        useBackupCode: backupCheckbox?.checked || false
+    });
+}
+
+function downloadBackupCodes() {
+    const codes = twoFactorState.backupCodes;
+    if (codes.length === 0) return;
+
+    const content = 'Резервные коды для 2FA\n========================\n\n' +
+        'Сохраните эти коды в безопасном месте.\n' +
+        'Каждый код можно использовать только один раз.\n\n' +
+        codes.map((code, i) => `${i + 1}. ${code}`).join('\n');
+
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = '2fa-backup-codes.txt';
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+function updateTwoFactorUI() {
+    const btn = document.getElementById('twoFactorBtn');
+    const status = document.getElementById('twoFactorStatus');
+
+    if (!btn || !status) return;
+
+    if (twoFactorState.enabled) {
+        btn.textContent = 'Настроить 2FA';
+        status.classList.remove('hidden');
+    } else {
+        btn.textContent = 'Включить 2FA';
+        status.classList.add('hidden');
+    }
+}
+
+// Обработка ответов сервера для 2FA
+function handleTwoFAMessage(data) {
+    switch (data.type) {
+        case '2fa_setup_response':
+            twoFactorState.secret = data.secret;
+            document.getElementById('twoFactorQR').src = data.qrCodeUrl;
+            document.getElementById('twoFactorSecret').textContent = data.secret;
+            showTwoFactorStep(1);
+            break;
+
+        case '2fa_enabled':
+            twoFactorState.enabled = true;
+            twoFactorState.backupCodes = data.backupCodes || [];
+            twoFactorState.isSettingUp = false;
+
+            // Показываем резервные коды
+            const codesContainer = document.getElementById('twoFactorBackupCodes');
+            if (codesContainer) {
+                codesContainer.innerHTML = data.backupCodes
+                    .map(code => `<code>${code}</code>`)
+                    .join('');
+            }
+
+            showTwoFactorStep(2);
+            showTwoFactorMessage('2FA успешно включён', false);
+            updateTwoFactorUI();
+            break;
+
+        case '2fa_disabled':
+            twoFactorState.enabled = false;
+            twoFactorState.secret = '';
+            twoFactorState.backupCodes = [];
+            showTwoFactorMessage('2FA отключён', false);
+            updateTwoFactorUI();
+            setTimeout(() => {
+                document.getElementById('twoFactorModal').classList.add('hidden');
+            }, 1000);
+            break;
+
+        case '2fa_error':
+            showTwoFactorMessage(data.message || 'Ошибка 2FA', true);
+            break;
+
+        case '2fa_verify_error':
+            showTwoFactorMessage('Неверный код', true);
+            break;
+
+        case '2fa_backup_codes_response':
+            twoFactorState.backupCodes = data.backupCodes || [];
+            break;
+    }
+}
+
+// ============================================================================
+// 🔐 2FA Вход
+// ============================================================================
+
+let login2FAState = {
+    username: '',
+    token: '',
+    deviceId: ''
+};
+
+function handleLogin2FARequired(data) {
+    login2FAState.username = data.username || '';
+    login2FAState.token = data.token || '';
+    login2FAState.deviceId = data.deviceId || '';
+
+    // Показываем форму ввода 2FA кода
+    showLogin2FAForm();
+}
+
+function showLogin2FAForm() {
+    const loginTab = document.getElementById('loginTab');
+    if (loginTab) loginTab.classList.add('hidden');
+
+    const twoFactorForm = document.createElement('div');
+    twoFactorForm.id = 'login2FAForm';
+    twoFactorForm.className = 'two-factor-login-form';
+    twoFactorForm.innerHTML = `
+        <h3>🔐 Двухфакторная аутентификация</h3>
+        <p class="two-factor-login-text">Введите код из приложения аутентификации</p>
+        <div class="form-group">
+            <label for="login2FACodeInput">Код</label>
+            <input type="text" id="login2FACodeInput" placeholder="123456" maxlength="6" pattern="[0-9]*" inputmode="numeric">
+        </div>
+        <div class="form-group">
+            <label>
+                <input type="checkbox" id="loginUseBackupCodeCheckbox"> Использовать резервный код
+            </label>
+        </div>
+        <button id="login2FASubmitBtn" class="btn-primary" type="button">Войти</button>
+        <button id="login2FACancelBtn" class="btn-secondary" type="button">Отмена</button>
+        <div id="login2FAStatus" class="status-message" role="alert" aria-live="polite"></div>
+    `;
+
+    const loginContainer = document.querySelector('.login-container');
+    if (loginContainer) {
+        loginContainer.appendChild(twoFactorForm);
+
+        const codeInput = document.getElementById('login2FACodeInput');
+        const submitBtn = document.getElementById('login2FASubmitBtn');
+        const cancelBtn = document.getElementById('login2FACancelBtn');
+        const backupCheckbox = document.getElementById('loginUseBackupCodeCheckbox');
+
+        if (codeInput) {
+            codeInput.addEventListener('input', (e) => {
+                e.target.value = e.target.value.replace(/[^0-9]/g, '');
+            });
+            codeInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') submitLogin2FA();
+            });
+        }
+
+        if (submitBtn) submitBtn.addEventListener('click', submitLogin2FA);
+        if (cancelBtn) cancelBtn.addEventListener('click', cancelLogin2FA);
+    }
+}
+
+function submitLogin2FA() {
+    const codeInput = document.getElementById('login2FACodeInput');
+    const backupCheckbox = document.getElementById('loginUseBackupCodeCheckbox');
+    const statusEl = document.getElementById('login2FAStatus');
+
+    const token = codeInput?.value.trim();
+    if (!token || token.length !== 6) {
+        if (statusEl) {
+            statusEl.textContent = 'Введите 6-значный код';
+            statusEl.style.color = 'var(--error)';
+        }
+        return;
+    }
+
+    if (statusEl) {
+        statusEl.textContent = 'Проверка...';
+        statusEl.style.color = 'var(--text-secondary)';
+    }
+
+    sendToServer({
+        type: 'login_2fa',
+        username: login2FAState.username,
+        token: login2FAState.token,
+        deviceId: login2FAState.deviceId,
+        twoFactorToken: token,
+        useBackupCode: backupCheckbox?.checked || false
+    });
+}
+
+function cancelLogin2FA() {
+    const twoFactorForm = document.getElementById('login2FAForm');
+    const loginTab = document.getElementById('loginTab');
+
+    if (twoFactorForm) twoFactorForm.remove();
+    if (loginTab) loginTab.classList.remove('hidden');
+
+    login2FAState = { username: '', token: '', deviceId: '' };
+}
+
+function handleLogin2FASuccess(data) {
+    cancelLogin2FA();
+    handleLoginSuccess(data);
+}
+
+function handleLogin2FAError(message) {
+    const statusEl = document.getElementById('login2FAStatus');
+    if (statusEl) {
+        statusEl.textContent = message || 'Неверный код';
+        statusEl.style.color = 'var(--error)';
     }
 }
