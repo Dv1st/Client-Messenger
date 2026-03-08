@@ -168,6 +168,20 @@ class SidebarComponent {
     renderFooter() {
         const { currentUser } = this.state;
 
+        // Защита от null currentUser (до авторизации)
+        if (!currentUser) {
+            if (this.dom.footerUserName) {
+                this.dom.footerUserName.textContent = 'Гость';
+            }
+            if (this.dom.footerUserStatus) {
+                this.dom.footerUserStatus.textContent = '';
+            }
+            if (this.dom.footerUserInitials) {
+                this.dom.footerUserInitials.textContent = 'G';
+            }
+            return;
+        }
+
         if (this.dom.footerUserName) {
             this.dom.footerUserName.textContent = currentUser.displayName || currentUser.username;
         }

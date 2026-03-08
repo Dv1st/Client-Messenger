@@ -53,7 +53,7 @@ let viewedProfileUserId = null; // ID пользователя, чей проф�
 // ============================================================================
 // 🔹 Константы
 // ============================================================================
-const WS_URL = 'wss://client-messenger-production.up.railway.app';
+const WS_URL = 'ws://localhost:3000';
 const DEBOUNCE_DELAY = 300;
 const MESSAGE_MAX_LENGTH = 10000;
 const MAX_MESSAGES_IN_STORAGE = 100;
@@ -79,6 +79,7 @@ const DOM = {
     sidebarTrigger: null,
     searchBox: null,
     chatsList: null,
+    searchResultsList: null,
 
     // Чат
     messagesList: null,
@@ -142,7 +143,7 @@ const DOM = {
 function initDOM() {
     const ids = [
         'loginWindow', 'chatWindow', 'settingsModal', 'sidebar', 'sidebarToggle',
-        'sidebarTrigger', 'searchBox', 'chatsList',
+        'sidebarTrigger', 'searchBox', 'chatsList', 'searchResultsList',
         'messagesList', 'inputPanel', 'chatPlaceholder', 'chatTitle', 'chatUserStatus', 'backBtn',
         'scrollToBottomBtn', 'unreadCount', 'messageBox', 'sendBtn', 'encryptCheckBox',
         'encryptKeyBox', 'decryptPanel', 'decryptKeyBox', 'decryptBtn', 'themeSelect',
@@ -372,7 +373,7 @@ function validateRegistrationForm() {
     
     // Проверяем все условия
     const isUsernameValid = username.length >= 3 && username.length <= 20 && /^[A-Za-z0-9_]+$/.test(username);
-    const isPasswordValid = password.length >= 4;
+    const isPasswordValid = password.length >= 8;
     const isConfirmMatch = password === confirm && confirm.length > 0;
     
     // 🔒 Визуальная индикация для каждого поля
@@ -829,6 +830,16 @@ function handleServerMessage(data) {
                     allowGroupInvite = data.allow;
                 }
                 break;
+            // 👤 Обработка обновления значков
+            case 'badges_updated':
+                if (Array.isArray(data.badges)) {
+                    userBadges = data.badges;
+                    // Обновляем отображение если профиль открыт
+                    if (DOM.profileModal && !DOM.profileModal.classList.contains('hidden')) {
+                        renderBadges(userBadges, viewedProfileUserId === currentUser);
+                    }
+                }
+                break;
             // 🔐 2FA сообщения
             case '2fa_setup_response':
             case '2fa_enabled':
@@ -875,6 +886,15 @@ function handleLoginSuccess(data) {
 
     if (typeof data.isVisibleInDirectory === 'boolean') {
         isVisibleInDirectory = data.isVisibleInDirectory;
+    }
+
+    if (typeof data.allowGroupInvite === 'boolean') {
+        allowGroupInvite = data.allowGroupInvite;
+    }
+
+    // 👤 Загружаем значки пользователя
+    if (Array.isArray(data.userBadges)) {
+        userBadges = data.userBadges;
     }
 
     // 🔒 Сохраняем токен сессии для авто-входа
@@ -1382,8 +1402,8 @@ function showSidebarOnMobile() {
  * Инициализация делегирования событий для списка пользователей
  */
 function initUserListEvents() {
-    // Делегирование для списка пользователей
-    DOM.usersList?.addEventListener('click', (e) => {
+    // Делегирование для списка пользователей (search results)
+    DOM.searchResultsList?.addEventListener('click', (e) => {
         const userItem = e.target.closest('.user-item');
         if (!userItem) return;
 
@@ -1393,9 +1413,9 @@ function initUserListEvents() {
         // Клик по элементу пользователя
         selectUser(username);
     });
-    
+
     // ✨ Двойной клик для быстрого открытия чата
-    DOM.usersList?.addEventListener('dblclick', (e) => {
+    DOM.searchResultsList?.addEventListener('dblclick', (e) => {
         const userItem = e.target.closest('.user-item');
         if (!userItem) return;
 
@@ -1406,7 +1426,7 @@ function initUserListEvents() {
     });
 
     // Контекстное меню (ПКМ) для доступа к функциям закрепить/удалить
-    DOM.usersList?.addEventListener('contextmenu', (e) => {
+    DOM.searchResultsList?.addEventListener('contextmenu', (e) => {
         const userItem = e.target.closest('.user-item');
         if (!userItem) return;
 
@@ -1682,7 +1702,7 @@ function updateUserVisibility(username, isVisible) {
 function getLastMessageEmoji(username) {
     try {
         const messages = loadMessagesFromStorage(username);
-        if (!messages || messages.length === 0) return '�������';
+        if (!messages || messages.length === 0) return '���������';
 
         const lastMessage = messages[messages.length - 1];
         if (!lastMessage) return '💬';
@@ -1939,8 +1959,17 @@ window.getPublicUsersData = function() {
 function getUserAvatar(username) {
     try {
         const profile = JSON.parse(localStorage.getItem(`profile_${username}`) || '{}');
-        if (profile.avatarUrl) return profile.avatarUrl;
-    } catch (e) {}
+        if (profile.avatarUrl) {
+            const url = profile.avatarUrl.trim();
+            // 🔒 Проверяем безопасные URL (только http, https, data:image)
+            if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:image/')) {
+                return url;
+            }
+            console.warn('⚠️ Blocked unsafe avatar URL:', url);
+        }
+    } catch (e) {
+        console.error('❌ getUserAvatar error:', e);
+    }
     // Заглушка - цветной фон с первой буквой
     return '';
 }
@@ -2673,7 +2702,7 @@ function searchUsers() {
     // ✨ Ищем точное совпадение имени
     const exactMatch = users.find(u => u.name.toLowerCase() === query && u.name !== currentUser);
 
-    const items = DOM.usersList?.querySelectorAll('.user-item');
+    const items = DOM.searchResultsList?.querySelectorAll('.user-item');
     if (!items) return;
 
     items.forEach(item => {
@@ -2882,11 +2911,11 @@ async function sendMessage() {
         hint = generateHint(key);
     }
 
-    // 📎 Обработка файлов
+    // 📎 Обработка файлов (параллельно для производительности)
     let filesData = [];
     if (hasFiles) {
-        for (const file of selectedFiles) {
-            try {
+        try {
+            filesData = await Promise.all(selectedFiles.map(async (file) => {
                 // Сжимаем изображения и видео перед отправкой
                 let processedFile = file;
                 if (file.type.startsWith('image/')) {
@@ -2896,15 +2925,16 @@ async function sendMessage() {
                 }
 
                 const dataUrl = await readFileAsDataURL(processedFile);
-                filesData.push({
+                return {
                     name: processedFile.name,
                     type: processedFile.type,
                     size: processedFile.size,
                     data: dataUrl
-                });
-            } catch (e) {
-                console.error('❌ Error reading file:', file.name, e);
-            }
+                };
+            }));
+        } catch (e) {
+            console.error('❌ Error processing files:', e);
+            showStatus('❌ Ошибка обработки файлов', true);
         }
     }
 
@@ -3125,6 +3155,13 @@ function readFileAsDataURL(file) {
  */
 function compressVideo(file, maxWidth = 1280, maxHeight = 720, videoBitsPerSecond = 2500000) {
     return new Promise((resolve) => {
+        // 🔒 Проверяем поддержку MediaRecorder
+        if (typeof MediaRecorder === 'undefined') {
+            console.warn('⚠️ MediaRecorder not supported, sending original');
+            resolve(file);
+            return;
+        }
+
         // Если файл маленький, не сжимаем
         if (file.size < 5 * 1024 * 1024) { // Менее 5MB
             resolve(file);
@@ -3240,6 +3277,7 @@ function compressVideo(file, maxWidth = 1280, maxHeight = 720, videoBitsPerSecon
 
             video.onerror = () => {
                 console.warn('⚠️ Video error, sending original');
+                URL.revokeObjectURL(video.src);
                 resolve(file);
             };
         };
@@ -3247,6 +3285,11 @@ function compressVideo(file, maxWidth = 1280, maxHeight = 720, videoBitsPerSecon
         video.src = URL.createObjectURL(file);
         video.load();
         video.muted = false;
+
+        // Освобождаем URL после загрузки
+        video.onloadeddata = () => {
+            URL.revokeObjectURL(video.src);
+        };
     });
 }
 
@@ -3434,7 +3477,7 @@ function showMessageContextMenu(e, messageEl, messageData, isOwn) {
     menu.style.left = left + 'px';
     menu.style.top = top + 'px';
 
-    // ✨ Реакции (показываем всегда)
+    // ✨ Реакции (пока����ываем всегда)
     const reactionsBtn = createMessageMenuItem('😊 Реакции', () => {
         showReactionPicker(e.pageX, e.pageY, messageData, messageEl);
         closeMessageContextMenu();
@@ -3492,7 +3535,7 @@ function createMessageMenuItem(text, onClick, isDanger = false) {
 }
 
 /**
- * Создат�� ��азделитель меню
+ * Созд��т�� ��азделитель меню
  */
 function createMessageMenuDivider() {
     const divider = document.createElement('div');
@@ -4038,45 +4081,6 @@ function showTemporaryNotification(text, duration = 2000) {
 }
 
 // ============================================================================
-// 🔹 Расшифровка
-// ============================================================================
-function decryptMessage() {
-    if (!DOM.decryptPanel || !DOM.decryptKeyBox || !DOM.messagesList) return;
-
-    const key = DOM.decryptKeyBox.value.trim();
-    if (!key) {
-        alert('⚠️ Введите ключ расшифровки');
-        return;
-    }
-
-    const messageIndex = DOM.decryptPanel.dataset.messageIndex;
-    if (!messageIndex) {
-        alert('⚠️ Сообщение не выбрано');
-        return;
-    }
-
-    const messageEl = DOM.messagesList.children[messageIndex];
-
-    if (messageEl && messageEl.dataset.encrypted === 'true') {
-        try {
-            const decrypted = xorDecrypt(messageEl.dataset.text, key);
-            const textEl = messageEl.querySelector('.text');
-            if (textEl) {
-                textEl.textContent = decrypted;
-            }
-            messageEl.dataset.encrypted = 'false';
-            messageEl.style.cursor = 'default';
-            messageEl.title = '';
-            DOM.decryptPanel.classList.add('hidden');
-            DOM.decryptKeyBox.value = '';
-        } catch (e) {
-            console.error('❌ Decrypt error:', e);
-            alert('❌ Неверный ключ');
-        }
-    }
-}
-
-// ============================================================================
 // 📎 Обработка файлов
 // ============================================================================
 
@@ -4319,81 +4323,52 @@ function createFileHtml(fileData) {
 }
 
 // ============================================================================
-// 🔹 Шифрование XOR
-// ============================================================================
-function xorEncrypt(text, passphrase) {
-    if (!text || !passphrase) return text;
-    try {
-        // Кодируем UTF-8 строку в байты
-        const encoder = new TextEncoder();
-        const textBytes = encoder.encode(text);
-        const keyBytes = encoder.encode(passphrase);
-        
-        const result = new Uint8Array(textBytes.length);
-        for (let i = 0; i < textBytes.length; i++) {
-            result[i] = textBytes[i] ^ keyBytes[i % keyBytes.length];
-        }
-        
-        // Преобразуем байты в base64
-        let binary = '';
-        for (let i = 0; i < result.length; i++) {
-            binary += String.fromCharCode(result[i]);
-        }
-        return btoa(binary);
-    } catch (e) {
-        console.error('❌ Encrypt error:', e);
-        return text;
-    }
-}
-
-function xorDecrypt(encryptedBase64, passphrase) {
-    if (!encryptedBase64 || !passphrase) return encryptedBase64;
-    try {
-        // Декодируем base64 в байты
-        const binary = atob(encryptedBase64);
-        const result = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i++) {
-            result[i] = binary.charCodeAt(i);
-        }
-        
-        const keyBytes = new TextEncoder().encode(passphrase);
-        const decrypted = new Uint8Array(result.length);
-        
-        for (let i = 0; i < result.length; i++) {
-            decrypted[i] = result[i] ^ keyBytes[i % keyBytes.length];
-        }
-        
-        // Декодируем UTF-8 байты в строку
-        const decoder = new TextDecoder();
-        return decoder.decode(decrypted);
-    } catch (e) {
-        console.error('❌ Decrypt error:', e);
-        return encryptedBase64;
-    }
-}
-
-function generateHint(passphrase) {
-    if (!passphrase || passphrase.length < 2) return '??';
-    return passphrase.substring(0, 2) + '*'.repeat(Math.max(0, passphrase.length - 2));
-}
-
-// ============================================================================
 // 👤 Система профилей пользователей
 // ============================================================================
 
 /**
- * Стандартный набор значков пользователя
+ * 🏅 Каталог всех доступных значков
+ * 
+ * 💡 КАК ДОБАВИТЬ НОВЫЙ ЗНАЧОК:
+ * 1. Добавьте новую строку в этот объект
+ * 2. Формат: 'уникальный_id': { icon: '🆕', name: 'Название', description: 'Описание' },
+ * 3. Сохраните файл - значок автоматически появится в профиле
+ * 
+ * Примеры для добавления:
+ * - 'early_adopter': { icon: '🚀', name: 'Первопроходец', description: 'Один из первых пользователей' },
+ * - 'chat_master':   { icon: '💬', name: 'Мастер чата', description: 'За 1000 сообщений' },
+ * - 'night_owl':     { icon: '🦉', name: 'Сова', description: 'Активен по ночам' },
+ * 
+ * @type {Object.<string, {icon: string, name: string, description: string}>}
  */
-const DEFAULT_BADGES = [
-    { id: 'active', icon: '🏆', name: 'Активный' },
-    { id: 'premium', icon: '⭐', name: 'Премиум' },
-    { id: 'moderator', icon: '🛡️', name: 'Модератор' },
-    { id: 'vip', icon: '💎', name: 'VIP' },
-    { id: 'verified', icon: '🎯', name: 'Верифицирован' },
-    { id: 'designer', icon: '🎨', name: 'Дизайнер' },
-    { id: 'developer', icon: '💻', name: 'Разработчик' },
-    { id: 'music', icon: '🎵', name: 'Музыкальный' }
-];
+const BADGES_CATALOG = {
+    'active':        { icon: '🏆', name: 'Активный', description: 'За активность в чате' },
+    'premium':       { icon: '⭐', name: 'Премиум', description: 'Премиум подписка' },
+    'moderator':     { icon: '🛡️', name: 'Модератор', description: 'Модератор чата' },
+    'vip':           { icon: '💎', name: 'VIP', description: 'VIP статус' },
+    'verified':      { icon: '🎯', name: 'Верифицирован', description: 'Подтверждённый пользователь' },
+    'designer':      { icon: '🎨', name: 'Дизайнер', description: 'Дизайнер' },
+    'developer':     { icon: '💻', name: 'Разработчик', description: 'Разработчик' },
+    'music':         { icon: '🎵', name: 'Музыкальный', description: 'Любитель музыки' },
+    // ➕ ДОБАВЛЯЙТЕ НОВЫЕ ЗНАЧКИ ВЫШЕ ЭТОЙ СТРОКИ
+};
+
+/**
+ * Получить все доступные ID значков
+ * @returns {string[]} Массив ID значков
+ */
+function getAvailableBadgeIds() {
+    return Object.keys(BADGES_CATALOG);
+}
+
+/**
+ * Получить информацию о значке по ID
+ * @param {string} badgeId - ID значка
+ * @returns {{icon: string, name: string, description: string}|null}
+ */
+function getBadgeInfo(badgeId) {
+    return BADGES_CATALOG[badgeId] || null;
+}
 
 /**
  * Инициализация системы профилей
@@ -4463,10 +4438,10 @@ function initProfile() {
  */
 function loadUserProfile() {
     if (!currentUser) return;
-    
+
     const profileKey = `user_profile_${currentUser}`;
     const badgesKey = `user_badges_${currentUser}`;
-    
+
     try {
         const savedProfile = localStorage.getItem(profileKey);
         if (savedProfile) {
@@ -4478,21 +4453,18 @@ function loadUserProfile() {
                 status: 'online'
             };
         }
-        
+
         const savedBadges = localStorage.getItem(badgesKey);
         if (savedBadges) {
             userBadges = JSON.parse(savedBadges);
         } else {
-            // Инициализация значков по умолчанию
-            userBadges = DEFAULT_BADGES.map(badge => ({
-                ...badge,
-                visible: false // По умолчанию все значки скрыты
-            }));
+            // 👤 По умолчанию у пользователя НЕТ значков
+            userBadges = [];
         }
     } catch (e) {
         console.error('❌ loadUserProfile error:', e);
         userProfile = { username: currentUser, avatar: null, status: 'online' };
-        userBadges = DEFAULT_BADGES.map(badge => ({ ...badge, visible: false }));
+        userBadges = [];
     }
 }
 
@@ -4519,7 +4491,10 @@ function saveUserProfile() {
  */
 function openProfile(userId) {
     if (!userId || !DOM.profileModal) return;
-    
+
+    // 🔒 Санитизация userId для защиты от XSS
+    userId = escapeHtml(userId);
+
     viewedProfileUserId = userId;
     const isOwnProfile = userId === currentUser;
     
@@ -4613,77 +4588,97 @@ function toggleEditMode() {
 
 /**
  * Отрисовка значков в профиле
- * @param {Array} badges - Массив значков
+ * @param {Array} badges - Массив значков [{id, visible}]
  * @param {boolean} isEditable - Режим редактирования
  */
 function renderBadges(badges, isEditable) {
     if (!DOM.badgesGrid) return;
-    
+
     DOM.badgesGrid.innerHTML = '';
-    
-    if (!badges || badges.length === 0) {
-        DOM.badgesGrid.innerHTML = '<p class="no-badges-text">Значки отсутствуют</p>';
+
+    // Фильтруем только видимые значки
+    const visibleBadges = badges.filter(b => b.visible);
+
+    if (!badges || badges.length === 0 || visibleBadges.length === 0) {
+        DOM.badgesGrid.innerHTML = isEditable 
+            ? '<p class="no-badges-text">У вас пока нет значков. Выберите значки в режиме редактирования</p>'
+            : '<p class="no-badges-text">Значки отсутствуют</p>';
         return;
     }
-    
+
     const fragment = document.createDocumentFragment();
-    
-    badges.forEach(badge => {
+
+    visibleBadges.forEach(badge => {
+        const badgeInfo = getBadgeInfo(badge.id);
+        if (!badgeInfo) return; // Пропускаем несуществующие значки
+
         const badgeEl = document.createElement('div');
-        badgeEl.className = 'badge-item' + (badge.visible === false ? ' hidden-badge' : '');
-        
+        badgeEl.className = 'badge-item';
+        badgeEl.title = badgeInfo.description;
+
         const iconEl = document.createElement('span');
         iconEl.className = 'badge-icon';
-        iconEl.textContent = badge.icon;
-        
+        iconEl.textContent = badgeInfo.icon;
+
         const nameEl = document.createElement('span');
         nameEl.className = 'badge-name';
-        nameEl.textContent = badge.name;
-        
+        nameEl.textContent = badgeInfo.name;
+
         badgeEl.appendChild(iconEl);
         badgeEl.appendChild(nameEl);
         fragment.appendChild(badgeEl);
     });
-    
+
     DOM.badgesGrid.appendChild(fragment);
 }
 
 /**
  * Отрисовка списка видимости значков (для редактирования)
+ * Показывает ВСЕ доступные значки из каталога
  */
 function renderBadgeVisibilityList() {
     if (!DOM.badgeVisibilityList) return;
-    
+
     DOM.badgeVisibilityList.innerHTML = '';
-    
+
     const fragment = document.createDocumentFragment();
-    
-    userBadges.forEach(badge => {
+    const allBadgeIds = getAvailableBadgeIds();
+
+    allBadgeIds.forEach(badgeId => {
+        const badgeInfo = getBadgeInfo(badgeId);
+        if (!badgeInfo) return;
+
+        // Проверяем, есть ли этот значок у пользователя
+        const userBadge = userBadges.find(b => b.id === badgeId);
+        const hasBadge = !!userBadge;
+        const isVisible = hasBadge && userBadge.visible;
+
         const itemEl = document.createElement('div');
         itemEl.className = 'badge-visibility-item';
-        
+
         const iconEl = document.createElement('span');
         iconEl.className = 'badge-icon-small';
-        iconEl.textContent = badge.icon;
-        
+        iconEl.textContent = badgeInfo.icon;
+
         const labelEl = document.createElement('span');
         labelEl.className = 'badge-label';
-        labelEl.textContent = badge.name;
-        
+        labelEl.textContent = badgeInfo.name;
+
         const toggleEl = document.createElement('button');
-        toggleEl.className = 'badge-toggle' + (badge.visible ? ' active' : '');
+        toggleEl.className = 'badge-toggle' + (isVisible ? ' active' : '');
         toggleEl.type = 'button';
-        toggleEl.dataset.badgeId = badge.id;
-        toggleEl.setAttribute('aria-label', `Переключить видимость значка ${badge.name}`);
-        toggleEl.setAttribute('aria-pressed', badge.visible ? 'true' : 'false');
-        toggleEl.addEventListener('click', () => toggleBadgeVisibility(badge.id));
-        
+        toggleEl.dataset.badgeId = badgeId;
+        toggleEl.setAttribute('aria-label', `Переключить видимость значка ${badgeInfo.name}`);
+        toggleEl.setAttribute('aria-pressed', isVisible ? 'true' : 'false');
+        toggleEl.title = badgeInfo.description;
+        toggleEl.addEventListener('click', () => toggleBadgeVisibility(badgeId));
+
         itemEl.appendChild(iconEl);
         itemEl.appendChild(labelEl);
         itemEl.appendChild(toggleEl);
         fragment.appendChild(itemEl);
     });
-    
+
     DOM.badgeVisibilityList.appendChild(fragment);
 }
 
@@ -4692,17 +4687,26 @@ function renderBadgeVisibilityList() {
  * @param {string} badgeId - ID значка
  */
 function toggleBadgeVisibility(badgeId) {
-    const badge = userBadges.find(b => b.id === badgeId);
-    if (badge) {
-        badge.visible = !badge.visible;
+    const badgeIndex = userBadges.findIndex(b => b.id === badgeId);
+    
+    if (badgeIndex >= 0) {
+        // Значок уже есть у пользователя - переключаем видимость
+        userBadges[badgeIndex].visible = !userBadges[badgeIndex].visible;
         
-        // Обновляем UI
-        renderBadgeVisibilityList();
-        
-        // Обновляем превью значков
-        const visibleBadges = userBadges.filter(b => b.visible);
-        renderBadges(visibleBadges, false);
+        // Если значок скрыт, удаляем его из массива (не храним скрытые)
+        if (!userBadges[badgeIndex].visible) {
+            userBadges.splice(badgeIndex, 1);
+        }
+    } else {
+        // У пользователя нет этого значка - добавляем с visible=true
+        userBadges.push({ id: badgeId, visible: true });
     }
+
+    // Обновляем UI
+    renderBadgeVisibilityList();
+
+    // Обновляем превью значков
+    renderBadges(userBadges, false);
 }
 
 /**
@@ -4782,9 +4786,18 @@ function applyAvatarUrl() {
  */
 function saveProfileChanges() {
     saveUserProfile();
+    
+    // 👤 Отправляем значки на сервер для сохранения в БД
+    if (socket && socket.readyState === WebSocket.OPEN && userBadges) {
+        sendToServer({
+            type: 'update_badges',
+            badges: userBadges.map(b => ({ id: b.id, visible: b.visible }))
+        });
+    }
+    
     toggleEditMode();
     showProfileStatus('Профиль успешно сохранён', false);
-    
+
     // Обновляем заголовок чата если он открыт
     if (selectedUser === currentUser) {
         updateChatTitleWithBadges();
@@ -4860,30 +4873,36 @@ function updateChatTitleWithBadges() {
 
     if (selectedUser === currentUser && visibleBadges.length > 0) {
         // Показываем первый значок в заголовке для своего профиля
-        const badge = visibleBadges[0].icon;
-        DOM.chatTitle.textContent = `${badge} ${selectedUser}`;
+        const badgeInfo = getBadgeInfo(visibleBadges[0].id);
+        if (badgeInfo) {
+            DOM.chatTitle.textContent = `${badgeInfo.icon} ${selectedUser}`;
+        } else {
+            DOM.chatTitle.textContent = selectedUser;
+        }
     } else {
         // Для других пользователей показываем их видимые значки
         // Загружаем профиль другого пользователя если есть
         const otherProfileKey = `user_profile_${selectedUser}`;
         const otherBadgesKey = `user_badges_${selectedUser}`;
-        
+
         try {
             const savedBadges = localStorage.getItem(otherBadgesKey);
             if (savedBadges) {
                 const otherBadges = JSON.parse(savedBadges);
                 const otherVisibleBadges = otherBadges.filter(b => b.visible);
-                
+
                 if (otherVisibleBadges.length > 0) {
-                    const badge = otherVisibleBadges[0].icon;
-                    DOM.chatTitle.textContent = `${badge} ${selectedUser}`;
-                    return;
+                    const badgeInfo = getBadgeInfo(otherVisibleBadges[0].id);
+                    if (badgeInfo) {
+                        DOM.chatTitle.textContent = `${badgeInfo.icon} ${selectedUser}`;
+                        return;
+                    }
                 }
             }
         } catch (e) {
             console.error('❌ updateChatTitleWithBadges error:', e);
         }
-        
+
         DOM.chatTitle.textContent = `💬 ${selectedUser}`;
     }
 }
@@ -5335,8 +5354,12 @@ function playNotificationSound() {
 function showBrowserNotification(data) {
     if (!data || !data.sender) return;
 
-    // Проверяем поддержку уведомлений
+    // 🔒 Проверяем поддержку уведомлений и secure context
     if (!('Notification' in window)) return;
+    if (!window.isSecureContext && location.hostname !== 'localhost') {
+        console.warn('⚠️ Notifications require HTTPS or localhost');
+        return;
+    }
 
     // Запрашиваем разрешение если нужно
     if (Notification.permission === 'granted') {
@@ -5350,6 +5373,9 @@ function showBrowserNotification(data) {
                     requireInteraction: false
                 }
             );
+
+            // Автозакрытие через 5 секунд
+            setTimeout(() => notification.close(), 5000);
 
             notification.onclick = () => {
                 window.focus();
@@ -5498,45 +5524,10 @@ function decryptMessage() {
 }
 
 // ============================================================================
-// 🔹 Временные уведомления
-// ============================================================================
-/**
- * Показать временное уведомление
- * @param {string} message - Сообщение
- */
-function showTemporaryNotification(message) {
-    if (!message) return;
-
-    const notification = document.createElement('div');
-    notification.className = 'temporary-notification';
-    notification.textContent = message;
-    notification.style.cssText = `
-        position: fixed;
-        bottom: 20px;
-        left: 50%;
-        transform: translateX(-50%);
-        background: var(--panel-bg);
-        color: var(--text-primary);
-        padding: 12px 24px;
-        border-radius: 8px;
-        box-shadow: 0 4px 20px var(--shadow-color);
-        z-index: 10000;
-        animation: fadeInOut 3s ease;
-        font-size: 14px;
-    `;
-
-    document.body.appendChild(notification);
-
-    setTimeout(() => {
-        notification.remove();
-    }, 3000);
-}
-
-// ============================================================================
 // 🔹 Инициализация настроек
 // ============================================================================
 function initSettings() {
-    const settingsBtn = document.getElementById('settingsBtn');
+    const settingsBtn = document.getElementById('footerSettingsBtn');
     const closeSettings = document.getElementById('closeSettings');
     const settingsModal = document.getElementById('settingsModal');
     const logoutBtn = document.getElementById('logoutBtn');

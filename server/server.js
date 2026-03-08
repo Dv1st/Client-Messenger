@@ -6,6 +6,9 @@
 
 'use strict';
 
+// Загрузка переменных окружения из .env
+require('dotenv').config();
+
 const http = require('http');
 const WebSocket = require('ws');
 const crypto = require('crypto');
@@ -99,7 +102,7 @@ const groups = new Map(); // groupId → {id, name, creator, members: Set, creat
 async function loadUsersFromDatabase() {
     try {
         const rows = await db.getAllUsers();
-        
+
         rows.forEach(row => {
             users.set(row.username, {
                 passwordHash: row.password_hash,
@@ -111,6 +114,7 @@ async function loadUsersFromDatabase() {
                 twoFactorSecret: row.two_factor_secret || null,
                 twoFactorEnabled: row.two_factor_enabled === true,
                 twoFactorBackupCodes: row.two_factor_backup_codes || null,
+                userBadges: row.user_badges || [],
                 status: 'offline',
                 activeChat: null,
                 devices: new Map()
@@ -584,8 +588,8 @@ function handleRegister(ws, { username, password }, clientIp) {
         return ws.send(JSON.stringify({ type: 'register_error', message: `Имя: ${USERNAME_MIN_LENGTH}-${USERNAME_MAX_LENGTH} символов` }));
     }
 
-    if (password.length < 4 || password.length > 100) {
-        return ws.send(JSON.stringify({ type: 'register_error', message: 'Пароль: 4-100 символов' }));
+    if (password.length < 8 || password.length > 100) {
+        return ws.send(JSON.stringify({ type: 'register_error', message: 'Пароль: 8-100 символов' }));
     }
 
     if (!/^[A-Za-z0-9_]{3,20}$/.test(username)) {
@@ -600,14 +604,18 @@ function handleRegister(ws, { username, password }, clientIp) {
     try {
         const salt = generateSalt();
         const passwordHash = hashPassword(password, salt);
-        
+
         const userData = {
             passwordHash: passwordHash,
             salt,
             createdAt: Date.now(),
             lastLogin: null,
             isVisibleInDirectory: false,
-            allowGroupInvite: false, // ✨ По умолчанию запрет на приглашение в группы
+            allowGroupInvite: false,
+            twoFactorSecret: null,
+            twoFactorEnabled: false,
+            twoFactorBackupCodes: null,
+            userBadges: [],
             status: 'offline',
             activeChat: null,
             devices: new Map()
@@ -738,6 +746,8 @@ function handleLogin(ws, { username, password }, clientIp) {
                 deviceId,
                 token: tokenId,
                 isVisibleInDirectory: user.isVisibleInDirectory,
+                allowGroupInvite: user.allowGroupInvite,
+                userBadges: user.userBadges || [],
                 message: 'Вход выполнен успешно'
             }));
             broadcastUserList();
@@ -817,6 +827,8 @@ function handleAutoLogin(ws, { username, token, deviceId }, clientIp) {
             deviceId: newDeviceId,
             token: tokenId,
             isVisibleInDirectory: user.isVisibleInDirectory,
+            allowGroupInvite: user.allowGroupInvite,
+            userBadges: user.userBadges || [],
             message: 'Автоматический вход выполнен успешно'
         }));
 
@@ -900,6 +912,8 @@ function handleLogin2FA(ws, { username, token, deviceId, twoFactorToken, useBack
         deviceId: session.deviceId,
         token,
         isVisibleInDirectory: user.isVisibleInDirectory,
+        allowGroupInvite: user.allowGroupInvite,
+        userBadges: user.userBadges || [],
         twoFactorVerified: true,
         remainingBackupCodes: user.twoFactorBackupCodes ? JSON.parse(user.twoFactorBackupCodes).length : 0,
         message: 'Вход выполнен успешно'
@@ -1280,7 +1294,7 @@ function handleUpdateGroupInvitePermission(ws, username, { allow }) {
     if (!user) return;
 
     user.allowGroupInvite = typeof allow === 'boolean' ? allow : false;
-    
+
     // 🔒 Сохраняем в БД
     saveUserToDatabase(username, user).catch(err => {
         console.error('❌ Failed to save user group invite permission:', err);
@@ -1293,6 +1307,38 @@ function handleUpdateGroupInvitePermission(ws, username, { allow }) {
 
     console.log(`🔒 ${username} updated group invite permission: ${user.allowGroupInvite}`);
 }
+
+// 👤 Обработка обновления значков профиля
+function handleUpdateBadges(ws, username, { badges }) {
+    const user = users.get(username);
+    if (!user) return;
+
+    // 🔒 Валидация и сохранение значков
+    if (Array.isArray(badges)) {
+        user.userBadges = badges.map(b => ({
+            id: String(b.id || '').slice(0, 50),
+            visible: Boolean(b.visible)
+        }));
+
+        // 🔒 Сохраняем в БД
+        saveUserToDatabase(username, user).catch(err => {
+            console.error('❌ Failed to save user badges:', err);
+        });
+
+        ws.send(JSON.stringify({
+            type: 'badges_updated',
+            badges: user.userBadges
+        }));
+
+        console.log(`👤 ${username} updated badges: ${badges.length} items`);
+    } else {
+        ws.send(JSON.stringify({
+            type: 'error',
+            message: 'Неверный формат значков'
+        }));
+    }
+}
+
 
 // ============================================================================
 // 🔒 2FA Обработчики
@@ -1917,6 +1963,10 @@ wss.on('connection', (ws, req) => {
             // ✨ Обработка обновления разрешения на приглашение в группы
             case 'update_group_invite_permission':
                 if (session) handleUpdateGroupInvitePermission(ws, username, data);
+                break;
+            // 👤 Обработка обновления значков профиля
+            case 'update_badges':
+                if (session) handleUpdateBadges(ws, username, data);
                 break;
             // 🔒 2FA команды
             case '2fa_setup':

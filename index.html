@@ -49,8 +49,8 @@
                     <input type="text" id="regUsername" placeholder="Введите имя" autocomplete="username" inputmode="text">
                 </div>
                 <div class="form-group">
-                    <label for="regPassword">Пароль (мин. 4 символа)</label>
-                    <input type="password" id="regPassword" placeholder="Введите пароль" autocomplete="new-password" inputmode="text" minlength="4">
+                    <label for="regPassword">Пароль (мин. 8 символов)</label>
+                    <input type="password" id="regPassword" placeholder="Введите пароль (мин. 8 символов)" autocomplete="new-password" inputmode="text" minlength="8">
                 </div>
                 <div class="form-group">
                     <label for="regConfirmPassword">Подтверждение пароля</label>
@@ -520,13 +520,15 @@
 
             function handleResize() {
                 const isMobile = window.innerWidth <= 768;
-                CONFIG.ringRadius = isMobile ? 200 : 355;  // Радиус окружности
+                CONFIG.ringRadius = isMobile ? 200 : 355;
                 CONFIG.circleRadius = isMobile ? 19 : 30;
                 CONFIG.centerX = isMobile ? 225 : 400;
                 CONFIG.centerY = isMobile ? 225 : 400;
 
                 circles.forEach(circle => {
-                    circle.element.setAttribute('r', CONFIG.circleRadius);
+                    if (circle && circle.element) {
+                        circle.element.setAttribute('r', CONFIG.circleRadius);
+                    }
                 });
             }
 
