@@ -45,7 +45,12 @@ class SidebarComponent {
             searchResultsList: null,
             chatsContainer: null,
             chatsList: null,
+            footerUserName: null,
+            footerUserStatusIndicator: null,
+            footerUserInitials: null,
+            footerUserAvatar: null,
             footerSettingsBtn: null,
+            footerProfileCard: null,
             createGroupBtn: null
         };
 
@@ -92,7 +97,12 @@ class SidebarComponent {
         this.dom.searchResultsList = document.getElementById('searchResultsList');
         this.dom.chatsContainer = document.getElementById('chatsContainer');
         this.dom.chatsList = document.getElementById('chatsList');
+        this.dom.footerUserName = document.getElementById('footerUserName');
+        this.dom.footerUserStatusIndicator = document.getElementById('footerUserStatusIndicator');
+        this.dom.footerUserInitials = document.getElementById('footerUserInitials');
+        this.dom.footerUserAvatar = document.getElementById('footerUserAvatar');
         this.dom.footerSettingsBtn = document.getElementById('footerSettingsBtn');
+        this.dom.footerProfileCard = document.getElementById('footerProfileCard');
         this.dom.createGroupBtn = document.getElementById('createGroupBtn');
     }
 
@@ -120,6 +130,21 @@ class SidebarComponent {
             });
         }
 
+        // 🔧 FIX: Клик по карточке пользователя для открытия профиля
+        if (this.dom.footerProfileCard) {
+            this.dom.footerProfileCard.addEventListener('click', () => {
+                this.callbacks.onProfileClick?.();
+            });
+
+            // Поддержка клавиши Enter
+            this.dom.footerProfileCard.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    this.callbacks.onProfileClick?.();
+                }
+            });
+        }
+
         // Кнопка создания группы
         if (this.dom.createGroupBtn) {
             this.dom.createGroupBtn.addEventListener('click', () => {
@@ -142,7 +167,45 @@ class SidebarComponent {
     // 🔹 Рендеринг
     // ============================================================================
     render() {
+        this.renderFooter();
         this.renderChatsList();
+    }
+
+    /**
+     * 🔧 FIX: Рендер футера с информацией о пользователе
+     */
+    renderFooter() {
+        const { currentUser } = this.state;
+
+        // Защита от null currentUser (до авторизации)
+        if (!currentUser) {
+            if (this.dom.footerUserName) {
+                this.dom.footerUserName.textContent = 'Гость';
+            }
+            if (this.dom.footerUserStatusIndicator) {
+                this.dom.footerUserStatusIndicator.className = 'status-indicator offline';
+            }
+            if (this.dom.footerUserInitials) {
+                this.dom.footerUserInitials.textContent = 'G';
+            }
+            return;
+        }
+
+        if (this.dom.footerUserName) {
+            this.dom.footerUserName.textContent = currentUser.displayName || currentUser.username;
+        }
+
+        if (this.dom.footerUserStatusIndicator) {
+            this.dom.footerUserStatusIndicator.className = 'status-indicator online';
+        }
+
+        if (this.dom.footerUserInitials) {
+            this.dom.footerUserInitials.textContent = this.getInitials(currentUser.displayName || currentUser.username);
+        }
+
+        if (this.dom.footerUserAvatar && currentUser.avatar) {
+            this.dom.footerUserAvatar.innerHTML = `<img src="${escapeHtml(currentUser.avatar)}" alt="Аватар"><span class="status-indicator online"></span>`;
+        }
     }
 
     /**

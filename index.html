@@ -122,7 +122,19 @@
 
                 <!-- 🔽 НИЖНЯЯ ЗАКРЕПЛЁННАЯ ЗОНА -->
                 <footer class="sidebar-footer" id="sidebarFooter">
-                    <button id="footerSettingsBtn" class="settings-btn" type="button" 
+                    <!-- 🔧 FIX: Возвращаем карточку профиля для развёрнутого состояния -->
+                    <div class="current-user-card" id="footerProfileCard" role="button" tabindex="0" 
+                         aria-label="Открыть профиль" title="Профиль">
+                        <div class="user-avatar-small" id="footerUserAvatar" aria-hidden="true">
+                            <span class="avatar-initials" id="footerUserInitials">U</span>
+                            <span class="status-indicator online" id="footerUserStatusIndicator" 
+                                  aria-label="Статус: онлайн"></span>
+                        </div>
+                        <div class="user-info" id="footerUserInfo">
+                            <span class="user-name" id="footerUserName">Пользователь</span>
+                        </div>
+                    </div>
+                    <button id="footerSettingsBtn" class="settings-btn" type="button"
                             title="Настройки" aria-label="Настройки">⚙️</button>
                 </footer>
             </aside>
@@ -400,11 +412,35 @@
                         <h4>✏️ Редактирование профиля</h4>
                     </div>
                     <div class="edit-panel-content">
+                        <!-- 🔧 FIX: ЗАДАЧА 1 - Поле установки статуса -->
                         <div class="edit-option">
-                            <label for="avatarUrlInput">URL аватарки:</label>
-                            <input type="url" id="avatarUrlInput" placeholder="https://example.com/avatar.jpg">
-                            <button id="applyAvatarUrlBtn" class="btn-small" type="button">Применить</button>
+                            <label for="customStatusSelect">Статус:</label>
+                            <select id="customStatusSelect">
+                                <option value="online">🟢 Онлайн</option>
+                                <option value="offline">⚫ Офлайн</option>
+                                <option value="busy">🔴 Не беспокоить</option>
+                                <option value="away">🟡 Отошёл</option>
+                                <option value="custom">✏️ Свой статус...</option>
+                            </select>
+                            <input type="text" id="customStatusText" class="hidden" 
+                                   placeholder="Введите свой статус" maxlength="50">
                         </div>
+                        
+                        <!-- 🔧 FIX: ЗАДАЧА 2 - Перенос изменения аватарки в настройки -->
+                        <div class="edit-option">
+                            <label>Аватарка:</label>
+                            <div class="avatar-preview-container">
+                                <img src="" alt="Аватар" id="editAvatarPreview" class="edit-avatar-preview">
+                                <div class="avatar-edit-buttons">
+                                    <button id="changeAvatarBtn" class="btn-small" type="button">📷 Изменить</button>
+                                    <button id="removeAvatarBtn" class="btn-small btn-danger" type="button">🗑️ Удалить</button>
+                                </div>
+                            </div>
+                            <input type="file" id="editAvatarFileInput" class="hidden" accept="image/png,image/jpeg,image/jpg" 
+                                   title="PNG, JPG до 2MB">
+                            <small class="hint">Максимальный размер: 2MB, форматы: PNG, JPG</small>
+                        </div>
+                        
                         <div class="badge-visibility-list" id="badgeVisibilityList">
                             <!-- Список значков с переключателями -->
                         </div>

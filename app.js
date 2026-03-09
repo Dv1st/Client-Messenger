@@ -132,7 +132,22 @@ const DOM = {
     badgeVisibilityList: null,
     profileActionsSection: null,
     sendMessageBtn: null,
-    profileStatusMessage: null
+    profileStatusMessage: null,
+
+    // 🔧 FIX: ЗАДАЧА 1, 2 - Новые элементы для статуса и аватарки
+    customStatusSelect: null,
+    customStatusText: null,
+    editAvatarPreview: null,
+    editAvatarFileInput: null,
+    changeAvatarBtn: null,
+    removeAvatarBtn: null,
+
+    // 🔧 FIX: Элементы footer sidebar
+    footerUserName: null,
+    footerUserStatusIndicator: null,
+    footerUserInitials: null,
+    footerUserAvatar: null,
+    footerProfileCard: null
 };
 
 /**
@@ -158,8 +173,13 @@ function initDOM() {
         'badgesGrid', 'editPanel', 'saveProfileBtn', 'cancelProfileBtn', 'avatarUrlInput',
         'applyAvatarUrlBtn', 'badgeVisibilityList', 'profileActionsSection', 'sendMessageBtn',
         'profileStatusMessage',
+        // 🔧 FIX: ЗАДАЧА 1, 2 - Новые элементы для статуса и аватарки
+        'customStatusSelect', 'customStatusText', 'editAvatarPreview', 'editAvatarFileInput',
+        'changeAvatarBtn', 'removeAvatarBtn',
         // ⋮ Меню чата
-        'chatMenuBtn', 'chatMenuDropdown', 'deleteChatBtn'
+        'chatMenuBtn', 'chatMenuDropdown', 'deleteChatBtn',
+        // 🔧 FIX: Элементы footer sidebar
+        'footerUserName', 'footerUserStatusIndicator', 'footerUserInitials', 'footerUserAvatar', 'footerProfileCard'
     ];
 
     ids.forEach(id => {
@@ -1069,6 +1089,9 @@ function handleLoginSuccess(data) {
         DOM.allowGroupInvite.checked = allowGroupInvite;
     }
 
+    // 🔧 FIX: Обновляем footer sidebar с информацией о пользователе
+    updateFooterProfile();
+
     console.log('✅ Connected:', currentUser);
     sendToServer({ type: 'get_users' });
     sendToServer({ type: 'get_groups' }); // 👥 Запрашиваем список групп
@@ -1531,7 +1554,9 @@ function handleMessageReceive(data) {
     }
 
     // Показываем сообщение если чат открыт
+    // 🔧 FIX: ЗАДАЧА 10 - Автоматическое отображение входящих сообщений без перезагрузки чата
     if (selectedUser === data.sender || (data.sender === currentUser && data.privateTo === selectedUser)) {
+        // Чат открыт - добавляем сообщение сразу
         const isAdded = addUnreadMessage();
         if (isAdded) {
             addMessage(messageData);
@@ -1547,11 +1572,40 @@ function handleMessageReceive(data) {
         if (data.privateTo && data.sender !== currentUser) {
             sendToServer({ type: 'message_read', from: data.sender, timestamp: data.timestamp });
         }
+        
+        // 🔧 FIX: Прокрутка к новому сообщению
+        setTimeout(() => {
+            scrollToBottom();
+        }, 50);
     } else if (data.privateTo === currentUser) {
+        // 🔧 FIX: Чат не открыт - увеличиваем счётчик непрочитанных и обновляем sidebar
         addUnreadMessage();
         addMessage(messageData, false, false);
-        // ✨ Увеличиваем счётчик непрочитанных
         incrementUnreadCount(data.sender);
+        
+        // 🔧 FIX: Обновляем sidebar чтобы показать новое последнее сообщение
+        if (window.sidebarComponent) {
+            window.sidebarComponent.renderChatsList();
+        }
+    } else if (data.groupId) {
+        // 🔧 FIX: Групповое сообщение
+        if (selectedGroup === data.groupId) {
+            const isAdded = addUnreadMessage();
+            if (isAdded) {
+                addMessage(messageData);
+            } else {
+                addMessage(messageData, false, false);
+            }
+            setTimeout(() => {
+                scrollToBottom();
+            }, 50);
+        } else {
+            addUnreadMessage();
+            incrementUnreadCount('group_' + data.groupId);
+            if (window.sidebarComponent) {
+                window.sidebarComponent.renderChatsList();
+            }
+        }
     }
 
     if (data.sender !== currentUser) {
@@ -1654,6 +1708,32 @@ function initChat() {
 // ============================================================================
 // 🔹 Sidebar (Боковая панель)
 // ============================================================================
+
+/**
+ * 🔧 FIX: Обновление информации о профиле в footer sidebar
+ */
+function updateFooterProfile() {
+    if (!currentUser) return;
+
+    if (DOM.footerUserName) {
+        DOM.footerUserName.textContent = currentUser;
+    }
+    if (DOM.footerUserInitials) {
+        DOM.footerUserInitials.textContent = currentUser.slice(0, 2).toUpperCase();
+    }
+    if (DOM.footerUserStatusIndicator) {
+        DOM.footerUserStatusIndicator.className = 'status-indicator online';
+    }
+    
+    // Проверяем аватар из профиля
+    try {
+        const profile = JSON.parse(localStorage.getItem(`profile_${currentUser}`) || '{}');
+        if (profile.avatarUrl && DOM.footerUserAvatar) {
+            DOM.footerUserAvatar.innerHTML = `<img src="${escapeHtml(profile.avatarUrl)}" alt="Аватар"><span class="status-indicator online"></span>`;
+        }
+    } catch (e) {}
+}
+
 function initSidebar() {
     if (DOM.sidebarToggle) {
         DOM.sidebarToggle.addEventListener('click', toggleSidebar);
@@ -1785,23 +1865,27 @@ function initSidebar() {
         },
 
         onSettingsClick: () => {
-            if (DOM.settingsModal) {
-                DOM.settingsModal.classList.remove('hidden');
+            // 🔧 FIX: Открытие настроек
+            const settingsModal = document.getElementById('settingsModal');
+            if (settingsModal) {
+                settingsModal.classList.remove('hidden');
+                syncSettingsUI();
             }
         },
 
         onProfileClick: () => {
-            if (DOM.profileModal) {
-                DOM.profileModal.classList.remove('hidden');
-                loadUserProfile();
+            // 🔧 FIX: Открытие профиля текущего пользователя
+            if (currentUser) {
+                openProfile(currentUser);
             }
         },
 
         onCreateGroup: () => {
+            // Открытие модального окна создания группы
             openCreateGroupModal();
         }
     });
-    
+
     // Первоначальная загрузка данных в sidebar
     setTimeout(() => {
         if (window.sidebarComponent) {
@@ -1820,7 +1904,7 @@ function showSidebarOnMobile() {
 }
 
 /**
- * Инициализация делегир��вания событий для списка пользователей
+ * Инициализация делегирования событий для списка пользователей
  */
 function initUserListEvents() {
     // Делегирование для списка пользователей (search results)
@@ -2006,7 +2090,7 @@ function addUnreadMessage() {
 }
 
 // ============================================================================
-// 🔹 ��ользователи
+// 🔹 Пользователи
 // ============================================================================
 function updateUsersList(serverUsers) {
     try {
@@ -2099,7 +2183,7 @@ function updateUserStatus(username, status, activeChat = null) {
 
         // 🔒 Если пользователь offline и был в чате с кем-то, обновляем activeChat
         if (status === 'offline' && activeChat === null) {
-            // Находим вс����������������х пользователей, у кого activeChat === username и сбрасыв��ем
+            // Находим всех пользователей, у кого activeChat === username и сбрасываем
             users.forEach(u => {
                 if (u.activeChat === username) {
                     u.activeChat = null;
@@ -2407,12 +2491,13 @@ window.getPublicUsersData = function() {
 };
 
 /**
- * Получить аватарку пользователя
+ * 🔧 FIX: ЗАДАЧА 12 - Получить аватарку пользователя (единый источник для всего приложения)
  * @param {string} username - Имя пользователя
- * @returns {string} - URL аватарки или заглушка
+ * @returns {string} - URL аватарки или пустая строка для заглушки
  */
 function getUserAvatar(username) {
     try {
+        // 🔹 Единый источник: localStorage профиль (profile_${username})
         const profile = JSON.parse(localStorage.getItem(`profile_${username}`) || '{}');
         if (profile.avatarUrl) {
             const url = profile.avatarUrl.trim();
@@ -2425,7 +2510,7 @@ function getUserAvatar(username) {
     } catch (e) {
         console.error('❌ getUserAvatar error:', e);
     }
-    // Заглушка - цветной фон с первой буквой
+    // Заглушка - пустая строка (отображается градиент с инициалами в CSS)
     return '';
 }
 
@@ -2549,7 +2634,7 @@ function incrementUnreadCount(username) {
 
 /**
  * ✨ Пометить сообщения от пользователя как прочитанные
- * @param {string} username - Имя пользо����ателя
+ * @param {string} username - Имя пользователя
  */
 function markMessagesAsRead(username) {
     try {
@@ -2572,12 +2657,12 @@ function markMessagesAsRead(username) {
             localStorage.setItem(key, JSON.stringify(messages));
         }
     } catch (e) {
-        console.error('���� Mark as read error:', e);
+        console.error('Mark as read error:', e);
     }
 }
 
 /**
- * Обновление выделения выбранного поль��ователя
+ * Обновление выделения выбранного пользователя
  * @param {string|null} username - Имя пользователя или null
  */
 function updateUserItemSelection(username) {
@@ -2600,8 +2685,8 @@ function updateUserItemSelection(username) {
 }
 
 /**
- * Обновление статуса ��ользователя в заголовке
- * @param {string} username - Имя поль�����ователя (собесед��ика!)
+ * Обновление статуса пользователя в заголовке
+ * @param {string} username - Имя пользователя (собеседника!)
  */
 function updateChatUserStatus(username) {
     if (!DOM.chatUserStatus) return;
@@ -2919,7 +3004,7 @@ const openCreateGroupModal = showCreateGroupModal;
 
 /**
  * Рендеринг выбора участников группы
- * Показывает только активных пользователей и тех, кто виден в списке пользователей
+ * 🔧 FIX: ЗАДАЧА 13 - Показываем только пользователей с активными чатами
  */
 function renderGroupMembersSelect() {
     if (!DOM.groupMembersSelect) return;
@@ -2931,13 +3016,24 @@ function renderGroupMembersSelect() {
     users.forEach(user => {
         if (user.name === currentUser) return; // Не показываем текущего пользователя
 
-        // ✨ Показываем только:
-        // 1. Пользователей с активным чатом (activeChat === currentUser)
-        // 2. Пользователей, которые видны в списке (isVisibleInDirectory === true)
-        const isActiveChat = user.activeChat === currentUser;
-        const isVisibleInDirectory = user.isVisibleInDirectory === true;
+        // 🔧 FIX: ЗАДАЧА 13 - Показываем ТОЛЬКО пользователей с активными чатами
+        const hasActiveChat = user.activeChat === currentUser;
+        
+        // 🔧 FIX: Также проверяем наличие переписки в localStorage
+        const hasChatHistory = (() => {
+            const key = `chat_messages_${currentUser}_${user.name}`;
+            const saved = localStorage.getItem(key);
+            if (saved) {
+                try {
+                    const messages = JSON.parse(saved);
+                    return messages && messages.length > 0;
+                } catch (e) {}
+            }
+            return false;
+        })();
 
-        if (!isActiveChat && !isVisibleInDirectory) {
+        // Показываем только если есть активный чат ИЛИ история переписки
+        if (!hasActiveChat && !hasChatHistory) {
             return; // Пропускаем пользователя
         }
 
@@ -2963,10 +3059,10 @@ function renderGroupMembersSelect() {
         // Показываем статус доступности
         if (!user.allowGroupInvite) {
             statusEl.textContent = '✗ Запретил';
-        } else if (isActiveChat) {
-            statusEl.textContent = '✓ Активен';
-        } else if (isVisibleInDirectory) {
-            statusEl.textContent = '✓ В списке';
+        } else if (hasActiveChat) {
+            statusEl.textContent = '✓ В чате';
+        } else if (hasChatHistory) {
+            statusEl.textContent = '✓ Был чат';
         }
 
         item.appendChild(checkbox);
@@ -2983,6 +3079,17 @@ function renderGroupMembersSelect() {
 
         fragment.appendChild(item);
     });
+
+    // 🔧 FIX: ЗАДАЧА 13 - Если нет доступных пользователей, показываем сообщение
+    if (fragment.children.length === 0) {
+        DOM.groupMembersSelect.innerHTML = `
+            <div class="search-no-results">
+                <span aria-hidden="true">👥</span>
+                <span>Нет доступных пользователей</span>
+                <small>Показываются только пользователи с которыми есть активный чат</small>
+            </div>
+        `;
+    }
 
     DOM.groupMembersSelect.appendChild(fragment);
 }
@@ -3436,7 +3543,7 @@ async function sendMessage() {
             }));
         } catch (e) {
             console.error('❌ Error processing files:', e);
-            showStatus('❌ Ошибка обработки файлов', true);
+            showStatus('Ошибка обработки файлов', true);
         }
     }
 
@@ -3889,7 +3996,7 @@ function createMessageElement(data, isOwn = false) {
         message.appendChild(textEl);
     }
 
-    // 📎 О��ображение файлов
+    // 📎 Отображение файлов
     if (data.files && data.files.length > 0) {
         const filesContainer = document.createElement('div');
         filesContainer.className = 'message-files';
@@ -3987,14 +4094,14 @@ function addMessage(data, isOwn = false, scrollToBottom = true) {
 }
 
 // ============================================================================
-// 🔹 Контекстное меню ��ообщений
+// 🔹 Контекстное меню сообщений
 // ============================================================================
 /**
  * Показать контекстное меню для сообщения
  * @param {MouseEvent} e - Событие мыши
- * @param {HTMLElement} messageEl - Элемент ������ообщения
+ * @param {HTMLElement} messageEl - Элемент сообщения
  * @param {Object} messageData - Данные сообщения
- * @param {boolean} isOwn - С��оё ли сообщение
+ * @param {boolean} isOwn - Своё ли сообщение
  */
 function showMessageContextMenu(e, messageEl, messageData, isOwn) {
     // Закрываем предыдущее меню
@@ -4007,7 +4114,7 @@ function showMessageContextMenu(e, messageEl, messageData, isOwn) {
     menu.className = 'message-context-menu';
     menu.id = 'messageContextMenu';
 
-    // Поз��ционирование меню
+    // Позиционирование меню
     const menuWidth = 200;
     const menuHeight = 180;
     const left = Math.min(e.pageX, window.innerWidth - menuWidth - 10);
@@ -4015,7 +4122,7 @@ function showMessageContextMenu(e, messageEl, messageData, isOwn) {
     menu.style.left = left + 'px';
     menu.style.top = top + 'px';
 
-    // ���� Реакции (пока����ываем всегда)
+    // Реакции (показываем всегда)
     const reactionsBtn = createMessageMenuItem('😊 Реакции', () => {
         showReactionPicker(e.pageX, e.pageY, messageData, messageEl);
         closeMessageContextMenu();
@@ -4025,7 +4132,7 @@ function showMessageContextMenu(e, messageEl, messageData, isOwn) {
     menu.appendChild(createMessageMenuDivider());
 
     // Копировать
-    const copyBtn = createMessageMenuItem('📋 Копиро��ать', () => {
+    const copyBtn = createMessageMenuItem('📋 Копировать', () => {
         copyMessageText(messageData.text);
         closeMessageContextMenu();
     });
@@ -4073,7 +4180,7 @@ function createMessageMenuItem(text, onClick, isDanger = false) {
 }
 
 /**
- * Созд��т�� ��азделитель меню
+ * Создать разделитель меню
  */
 function createMessageMenuDivider() {
     const divider = document.createElement('div');
@@ -4095,7 +4202,7 @@ function closeMessageContextMenu() {
 }
 
 /**
- * Закрытие мен�� при клике
+ * Закрытие меню при клике
  */
 function closeMenuOnClick(e) {
     const menu = document.getElementById('messageContextMenu');
@@ -4107,7 +4214,7 @@ function closeMenuOnClick(e) {
 /**
  * ✨ Показать пикер реакций
  * @param {number} x - Координата X
- * @param {number} y - ��оордината Y
+ * @param {number} y - Координата Y
  * @param {Object} messageData - Данные сообщения
  * @param {HTMLElement} messageEl - Элемент сообщения
  */
@@ -4352,7 +4459,7 @@ function updateMessageReactions(messageEl, reactions) {
  * Копировать текст сообщения
  */
 function copyMessageText(text) {
-    const cleanText = text.replace(/🔒 Заш����фровано.*/g, '').trim();
+    const cleanText = text.replace(/🔒 Зашифровано.*/g, '').trim();
     
     // Проверяем поддержку Clipboard API
     if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -4516,7 +4623,7 @@ function handleRemoteMessageReaction(timestamp, data) {
     const messages = DOM.messagesList.querySelectorAll('.message');
     messages.forEach(msg => {
         if (msg.dataset.timestamp == timestamp) {
-            // Получаем текущие реакции в фо��мате {emoji: [{userId, timestamp}]}
+            // Получаем текущие реакции в формате {emoji: [{userId, timestamp}]}
             const currentReactions = msg._reactions || {};
             
             // Инициализируем массив для этой реакции если нет
@@ -4530,7 +4637,7 @@ function handleRemoteMessageReaction(timestamp, data) {
             );
 
             if (add !== false) {
-                // Д��бавляем реакцию
+                // Добавляем реакцию
                 if (existingUserReactionIndex === -1) {
                     // Реакции от этого пользователя ещё нет — добавляем
                     currentReactions[reaction].push({
@@ -4995,7 +5102,29 @@ function initProfile() {
             }
         });
     }
-    
+
+    // 🔧 FIX: ЗАДАЧА 1 - Обработка изменения статуса
+    if (DOM.customStatusSelect) {
+        DOM.customStatusSelect.addEventListener('change', handleCustomStatusChange);
+    }
+
+    // 🔧 FIX: ЗАДАЧА 2 - Обработка изменения аватарки
+    if (DOM.changeAvatarBtn) {
+        DOM.changeAvatarBtn.addEventListener('click', () => {
+            if (DOM.editAvatarFileInput) {
+                DOM.editAvatarFileInput.click();
+            }
+        });
+    }
+
+    if (DOM.editAvatarFileInput) {
+        DOM.editAvatarFileInput.addEventListener('change', handleEditAvatarFileSelect);
+    }
+
+    if (DOM.removeAvatarBtn) {
+        DOM.removeAvatarBtn.addEventListener('click', handleRemoveAvatar);
+    }
+
     // Закрытие по клику вне модального окна
     if (DOM.profileModal) {
         DOM.profileModal.addEventListener('click', (e) => {
@@ -5062,6 +5191,243 @@ function closeChatMenu() {
     
     DOM.chatMenuDropdown.classList.add('hidden');
     DOM.chatMenuBtn.setAttribute('aria-expanded', 'false');
+}
+
+// ============================================================================
+// 🔧 FIX: ЗАДАЧА 1 - Обработка пользовательского статуса
+// ============================================================================
+
+/**
+ * Обработка изменения статуса
+ */
+function handleCustomStatusChange() {
+    if (!DOM.customStatusSelect) return;
+    
+    const selectedValue = DOM.customStatusSelect.value;
+    
+    // Показываем/скрываем поле для своего статуса
+    if (DOM.customStatusText) {
+        if (selectedValue === 'custom') {
+            DOM.customStatusText.classList.remove('hidden');
+            DOM.customStatusText.focus();
+        } else {
+            DOM.customStatusText.classList.add('hidden');
+        }
+    }
+}
+
+/**
+ * Получить отображение статуса
+ * @param {string} status - Значение статуса
+ * @returns {Object} - {text, class, color}
+ */
+function getStatusDisplay(status) {
+    const statusMap = {
+        'online': { text: 'Онлайн', class: 'online', color: 'var(--status-online)', icon: '🟢' },
+        'offline': { text: 'Офлайн', class: 'offline', color: 'var(--status-offline)', icon: '⚫' },
+        'busy': { text: 'Не беспокоить', class: 'busy', color: 'var(--error)', icon: '🔴' },
+        'away': { text: 'Отошёл', class: 'away', color: 'var(--warning)', icon: '🟡' },
+        'custom': { text: 'Свой статус', class: 'custom', color: 'var(--text-secondary)', icon: '✏️' }
+    };
+    
+    return statusMap[status] || statusMap['offline'];
+}
+
+/**
+ * Сохранить статус пользователя
+ * @param {string} status - Статус
+ */
+function saveUserStatus(status) {
+    if (!currentUser) return;
+    
+    try {
+        const profile = JSON.parse(localStorage.getItem(`profile_${currentUser}`) || '{}');
+        profile.customStatus = status;
+        localStorage.setItem(`profile_${currentUser}`, JSON.stringify(profile));
+        
+        // 🔧 FIX: Отправляем обновление статуса на сервер
+        sendToServer({
+            type: 'update_user_status',
+            status: status,
+            username: currentUser
+        });
+        
+        // Обновляем отображение
+        updateProfileStatusDisplay(status);
+        updateFooterStatusDisplay(status);
+        
+        console.log('✅ Status saved:', status);
+    } catch (e) {
+        console.error('❌ Save status error:', e);
+    }
+}
+
+/**
+ * Обновить отображение статуса в профиле
+ */
+function updateProfileStatusDisplay(status) {
+    if (!DOM.profileUserStatus) return;
+    
+    const statusDisplay = getStatusDisplay(status);
+    DOM.profileUserStatus.className = 'profile-user-status ' + statusDisplay.class;
+    
+    const statusDot = DOM.profileUserStatus.querySelector('.status-dot');
+    const statusText = DOM.profileUserStatus.querySelector('.status-text');
+    
+    if (statusDot) {
+        statusDot.style.background = statusDisplay.color;
+    }
+    if (statusText) {
+        statusText.textContent = statusDisplay.text;
+    }
+}
+
+/**
+ * Обновить отображение статуса в footer
+ */
+function updateFooterStatusDisplay(status) {
+    if (!DOM.footerUserStatusIndicator) return;
+    
+    const statusDisplay = getStatusDisplay(status);
+    DOM.footerUserStatusIndicator.className = 'status-indicator ' + statusDisplay.class;
+    DOM.footerUserStatusIndicator.style.background = statusDisplay.color;
+}
+
+// ============================================================================
+// 🔧 FIX: ЗАДАЧА 2 - Обработка аватарки
+// ============================================================================
+
+/**
+ * Обработка выбора файла аватарки в режиме редактирования
+ */
+function handleEditAvatarFileSelect(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    
+    // 🔧 FIX: Валидация размера (макс 2MB)
+    if (file.size > 2 * 1024 * 1024) {
+        showProfileMessage('❌ Размер файла не должен превышать 2MB', true);
+        event.target.value = '';
+        return;
+    }
+    
+    // 🔧 FIX: Валидация формата
+    const validTypes = ['image/png', 'image/jpeg', 'image/jpg'];
+    if (!validTypes.includes(file.type)) {
+        showProfileMessage('❌ Допустимые форматы: PNG, JPG', true);
+        event.target.value = '';
+        return;
+    }
+    
+    // Предпросмотр
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        if (DOM.editAvatarPreview) {
+            DOM.editAvatarPreview.src = e.target.result;
+        }
+        
+        // Сохраняем аватар
+        saveAvatar(e.target.result);
+    };
+    reader.readAsDataURL(file);
+    
+    // Очищаем input
+    event.target.value = '';
+}
+
+/**
+ * Удаление аватарки
+ */
+function handleRemoveAvatar() {
+    if (!confirm('Вы уверены, что хотите удалить аватарку?')) return;
+    
+    saveAvatar('');
+    
+    if (DOM.editAvatarPreview) {
+        DOM.editAvatarPreview.src = getDefaultAvatar(currentUser);
+    }
+    
+    showProfileMessage('✅ Аватарка удалена', false);
+}
+
+/**
+ * Сохранение аватарки
+ * @param {string} avatarUrl - URL аватарки (data URL или пустая строка)
+ */
+function saveAvatar(avatarUrl) {
+    if (!currentUser) return;
+    
+    try {
+        const profile = JSON.parse(localStorage.getItem(`profile_${currentUser}`) || '{}');
+        profile.avatarUrl = avatarUrl || '';
+        localStorage.setItem(`profile_${currentUser}`, JSON.stringify(profile));
+        
+        // 🔧 FIX: Отправляем обновление аватара на сервер
+        sendToServer({
+            type: 'update_profile',
+            username: currentUser,
+            avatar: avatarUrl || null
+        });
+        
+        // Обновляем отображение везде
+        updateAvatarDisplay(avatarUrl);
+        
+        console.log('✅ Avatar saved');
+    } catch (e) {
+        console.error('❌ Save avatar error:', e);
+    }
+}
+
+/**
+ * Обновление отображения аватарки во всём приложении
+ * @param {string} avatarUrl - URL аватарки
+ */
+function updateAvatarDisplay(avatarUrl) {
+    const url = avatarUrl || getDefaultAvatar(currentUser);
+    
+    // В профиле
+    if (DOM.profileAvatar) {
+        DOM.profileAvatar.src = url;
+    }
+    
+    // В режиме редактирования
+    if (DOM.editAvatarPreview) {
+        DOM.editAvatarPreview.src = url;
+    }
+    
+    // В footer sidebar
+    if (DOM.footerUserAvatar) {
+        if (avatarUrl) {
+            DOM.footerUserAvatar.innerHTML = `<img src="${escapeHtml(avatarUrl)}" alt="Аватар"><span class="status-indicator online"></span>`;
+        } else {
+            DOM.footerUserAvatar.innerHTML = `<span class="avatar-initials">${currentUser.slice(0, 2).toUpperCase()}</span><span class="status-indicator online"></span>`;
+        }
+    }
+    
+    // Обновляем sidebar
+    if (window.sidebarComponent) {
+        window.sidebarComponent.updateCurrentUser({
+            username: currentUser,
+            avatar: avatarUrl || null
+        });
+        window.sidebarComponent.renderChatsList();
+    }
+}
+
+/**
+ * Показать сообщение в профиле
+ * @param {string} message - Сообщение
+ * @param {boolean} isError - Ошибка ли это
+ */
+function showProfileMessage(message, isError = false) {
+    if (!DOM.profileStatusMessage) return;
+    
+    DOM.profileStatusMessage.textContent = message;
+    DOM.profileStatusMessage.style.color = isError ? 'var(--error)' : 'var(--success)';
+    
+    setTimeout(() => {
+        DOM.profileStatusMessage.textContent = '';
+    }, 3000);
 }
 
 /**
@@ -5215,35 +5581,65 @@ function openProfile(userId) {
 
     viewedProfileUserId = userId;
     const isOwnProfile = userId === currentUser;
-    
+
     // Обновляем заголовок
     const profileTitle = document.getElementById('profileTitle');
     if (profileTitle) {
         profileTitle.textContent = isOwnProfile ? 'Ваш профиль' : 'Профиль пользователя';
     }
-    
-    // Заполняем данные профиля
-    const avatar = userProfile?.avatar || getDefaultAvatar(userId);
+
+    // 🔧 FIX: ЗАДАЧА 1, 2 - Загружаем профиль из localStorage
+    const profile = JSON.parse(localStorage.getItem(`profile_${userId}`) || '{}');
+    const avatar = profile.avatarUrl || getDefaultAvatar(userId);
     const name = userId;
-    const status = isOwnProfile ? 'online' : getUserStatus(userId);
     
+    // Получаем статус (свой или чужой)
+    let status;
+    if (isOwnProfile) {
+        status = profile.customStatus || 'online';
+    } else {
+        status = getUserStatus(userId);
+    }
+
     if (DOM.profileAvatar) {
         DOM.profileAvatar.src = avatar;
         DOM.profileAvatar.alt = `Аватар ${userId}`;
     }
-    
+
     if (DOM.profileUserName) {
         DOM.profileUserName.textContent = name;
     }
-    
+
     if (DOM.profileUserStatus) {
-        DOM.profileUserStatus.className = 'profile-user-status ' + status;
+        const statusDisplay = getStatusDisplay(status);
+        DOM.profileUserStatus.className = 'profile-user-status ' + statusDisplay.class;
+        const statusDot = DOM.profileUserStatus.querySelector('.status-dot');
         const statusText = DOM.profileUserStatus.querySelector('.status-text');
+        if (statusDot) {
+            statusDot.style.background = statusDisplay.color;
+        }
         if (statusText) {
-            statusText.textContent = status === 'online' ? 'Онлайн' : 'Офлайн';
+            statusText.textContent = statusDisplay.text;
         }
     }
-    
+
+    // 🔧 FIX: ЗАДАЧА 1 - Заполняем статус в режиме редактирования
+    if (isOwnProfile && DOM.customStatusSelect) {
+        DOM.customStatusSelect.value = profile.customStatus || 'online';
+        if (DOM.customStatusText) {
+            if (profile.customStatus === 'custom') {
+                DOM.customStatusText.classList.remove('hidden');
+            } else {
+                DOM.customStatusText.classList.add('hidden');
+            }
+        }
+    }
+
+    // 🔧 FIX: ЗАДАЧА 2 - Заполняем аватарку в режиме редактирования
+    if (isOwnProfile && DOM.editAvatarPreview) {
+        DOM.editAvatarPreview.src = avatar;
+    }
+
     // Отображение значков
     if (isOwnProfile) {
         renderBadges(userBadges, true);
@@ -5252,22 +5648,35 @@ function openProfile(userId) {
         const visibleBadges = userBadges.filter(b => b.visible);
         renderBadges(visibleBadges, false);
     }
-    
+
     // Показываем/скрываем кнопку редактирования
     if (DOM.editProfileBtn) {
         DOM.editProfileBtn.classList.toggle('hidden', !isOwnProfile);
     }
-    
+
     // Показываем/скрываем панель действий для чужого профиля
     if (DOM.profileActionsSection) {
         DOM.profileActionsSection.classList.toggle('hidden', isOwnProfile);
     }
-    
+
+    // 🔧 FIX: ЗАДАЧА 11 - Скрываем элементы загрузки аватара для чужого профиля
+    const avatarOverlay = document.getElementById('avatarOverlay');
+    const avatarFileInput = document.getElementById('avatarFileInput');
+    if (avatarOverlay && avatarFileInput) {
+        if (isOwnProfile) {
+            avatarOverlay.classList.remove('hidden');
+            avatarOverlay.style.display = 'flex';
+        } else {
+            avatarOverlay.classList.add('hidden');
+            avatarOverlay.style.display = 'none';
+        }
+    }
+
     // Скрываем панель редактирования
     if (DOM.editPanel) {
         DOM.editPanel.classList.add('hidden');
     }
-    
+
     // Показываем модальное окно
     DOM.profileModal.classList.remove('hidden');
 }
@@ -5297,7 +5706,7 @@ function toggleEditMode() {
     } else {
         // Открываем режим редактирования
         DOM.editPanel.classList.remove('hidden');
-        DOM.editProfileBtn.textContent = '🔒';
+        DOM.editProfileBtn.textContent = '✅';
         
         // Заполняем форму редактирования
         renderBadgeVisibilityList();
@@ -5366,7 +5775,7 @@ function renderBadgeVisibilityList() {
         const badgeInfo = getBadgeInfo(badgeId);
         if (!badgeInfo) return;
 
-        // Проверяем, ест�� ли этот значок у пользователя
+        // Проверяем, есть ли этот значок у пользователя
         const userBadge = userBadges.find(b => b.id === badgeId);
         const hasBadge = !!userBadge;
         const isVisible = hasBadge && userBadge.visible;
@@ -5408,7 +5817,7 @@ function toggleBadgeVisibility(badgeId) {
     const badgeIndex = userBadges.findIndex(b => b.id === badgeId);
     
     if (badgeIndex >= 0) {
-        // Значок уже есть у пользователя - пере���лючаем видимость
+        // Значок уже есть у пользователя - переключаем видимость
         userBadges[badgeIndex].visible = !userBadges[badgeIndex].visible;
         
         // Если значок скрыт, удаляем его из массива (не храним скрытые)
@@ -5504,7 +5913,13 @@ function applyAvatarUrl() {
  */
 function saveProfileChanges() {
     saveUserProfile();
-    
+
+    // 🔧 FIX: ЗАДАЧА 1 - Сохраняем статус
+    if (DOM.customStatusSelect) {
+        const status = DOM.customStatusSelect.value;
+        saveUserStatus(status);
+    }
+
     // 👤 Отправляем значки на сервер для сохранения в БД
     if (socket && socket.readyState === WebSocket.OPEN && userBadges) {
         sendToServer({
@@ -5512,7 +5927,7 @@ function saveProfileChanges() {
             badges: userBadges.map(b => ({ id: b.id, visible: b.visible }))
         });
     }
-    
+
     toggleEditMode();
     showProfileStatus('Профиль успешно сохранён', false);
 
@@ -5709,7 +6124,7 @@ function initHotkeys() {
             } else if (selectedUser) {
                 showGeneralChat();
             }
-            // ��акрываем контекстное меню пользователей
+            // Закрываем контекстное меню пользователей
             const contextMenu = document.querySelector('.context-menu');
             if (contextMenu) contextMenu.remove();
             // Закрываем контекстное меню сообщений
@@ -5725,11 +6140,11 @@ function initHotkeys() {
 }
 
 // ============================================================================
-// 🔹 ��вто-вход и сессии
+// 🔹 Авто-вход и сессии
 // ============================================================================
 
 /**
- * Автоматический ��ход по сохранённой сессии
+ * Автоматический вход по сохранённой сессии
  * @returns {boolean} - Успешно ли выполнен вход
  */
 function autoLogin() {
@@ -5765,7 +6180,7 @@ function autoLogin() {
 
 /**
  * Сохранение сессии пользователя
- * 🔒 Сохраняем токен сессии ��ля авто-входа
+ * 🔒 Сохраняем токен сессии для авто-входа
  * @param {string} username - Имя пользователя
  * @param {string} token - Токен сессии
  * @param {string} deviceId - ID устройства
@@ -5774,7 +6189,7 @@ function saveAuthSession(username, token, deviceId) {
     try {
         const sessionData = {
             username: username,
-            token: token, // 🔒 Ток��н сессии д����я авто-��х��да
+            token: token, // 🔒 Токен сессии для авто-ахвода
             deviceId: deviceId, // ID устройства
             passwordHint: username.substring(0, 2) + '•••', // 🔒 Безопасная подсказка
             timestamp: Date.now(),
@@ -5949,7 +6364,7 @@ function clearChatStorage(username) {
 }
 
 // ============================================================================
-// 🔹 На��тройки (тема, шрифт, цвет)
+// 🔹 Настройки (тема, шрифт, цвет)
 // ============================================================================
 function loadSettings() {
     try {
@@ -6035,7 +6450,7 @@ function saveSettings() {
             fontSize: DOM.fontSizeSelect?.value || '14',
             soundEnabled: DOM.soundNotify?.checked ?? true,
             isVisibleInDirectory: DOM.showInDirectory?.checked ?? false,
-            allowGroupInvite: DOM.allowGroupInvite?.checked ?? false // ✨ Настройка для ��рупповых чатов
+            allowGroupInvite: DOM.allowGroupInvite?.checked ?? false // ✨ Настройка для групповых чатов
         };
         localStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
     } catch (e) {
@@ -6171,7 +6586,7 @@ function xorDecrypt(encryptedText, key) {
             result += String.fromCharCode(hex);
         }
 
-        // XOR расшифр��вание
+        // XOR расшифрование
         let decrypted = '';
         const keyLength = key.length;
 
@@ -6184,7 +6599,7 @@ function xorDecrypt(encryptedText, key) {
         return decrypted;
     } catch (e) {
         console.error('❌ Decrypt error:', e);
-        return '❌ Ошиб��а расшифровки';
+        return '❌ Ошибка расшифровки';
     }
 }
 
@@ -6204,7 +6619,7 @@ function generateHint(key) {
 }
 
 /**
- * Расшиф����овка сообщения
+ * Расшифровка сообщения
  */
 function decryptMessage() {
     if (!DOM.decryptKeyBox || !DOM.decryptPanel) return;
@@ -6231,10 +6646,10 @@ function decryptMessage() {
 
     const decrypted = xorDecrypt(encryptedText, key);
 
-    // Проверяем правильность ключа по подск��зке
+    // Проверяем правильность ключа по подсказке
     const expectedHint = generateHint(key);
     if (hint && expectedHint !== hint) {
-        alert('⚠️ Неверный ключ! ��одсказка: ' + hint);
+        alert('⚠️ Неверный ключ! подсказка: ' + hint);
         return;
     }
 
