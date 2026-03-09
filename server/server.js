@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Client Messenger - Серверная часть
  * @version 2.0.0
  * @description Оптимизированная версия с улучшенной безопасностью и базой данных
@@ -44,22 +44,20 @@ const EMOJI_BADGES_CATALOG = {
     'verified':      { icon: '🎯', name: 'Верифицирован', description: 'Подтверждённый пользователь' },
     'designer':      { icon: '🎨', name: 'Дизайнер', description: 'Дизайнер' },
     'developer':     { icon: '💻', name: 'Разработчик', description: 'Разработчик' },
-    'music':         { icon: '🎵', name: 'Музыкальный', description: 'Любитель музыки' },
-    'fire':          { icon: '🔥', name: 'Огонь', description: 'ПИРОМАНТ!!!' },
-    'diamond':       { icon: '💠', name: 'Кристалл', description: 'Алмаз, как дела?' },
-    'crown':         { icon: '👑', name: 'Корона', description: 'Queneeee' },
-    'heart':         { icon: '❤️', name: 'Сердце', description: 'Любимчик' },
+    'music':         { icon: '🎵', name: 'Меломан', description: 'Любитель музыки' },
+    'fire':          { icon: '🔥', name: 'ПИРОМАНТ', description: 'Хочет видеть мир в ОГНЕ!!!' },
+    'crown':         { icon: '👑', name: 'Queneeee', description: 'Quene-e-e-e!' },
+    'heart':         { icon: '❤️', name: 'Любимчик', description: 'Даже страшно представить как его получить...' },
     'star':          { icon: '🌟', name: 'Звезда', description: 'Путеводная звезда' },
     'trophy':        { icon: '🏅', name: 'Трофей', description: 'Победитель' },
-    'medal':         { icon: '🎖️', name: 'Медаль', description: 'Что-то сделал' },
-    'stop':         { icon: '✋', name: 'Бейдж', description: 'СТОП! Мне не приятно' },
+    'medal':         { icon: '🎖️', name: 'Медалька(шоколадная)', description: 'Что-то сделал' },
+    'stop':         { icon: '✋', name: 'СТПОЭ', description: 'СТОП! Мне не приятно' },
     'sparkles':      { icon: '✨', name: 'Сияние', description: 'Спар-р-р-рки?!' },
-    'alien':         { icon: '👽', name: 'Пришелец', description: 'Консультант ДНС' },
-    'robot':         { icon: '🤖', name: 'Робот', description: 'Автоматизатор' },
-    'ghost':         { icon: '👻', name: 'Призрак', description: 'Невидимка' },
+    'alien':         { icon: '👽', name: 'Консультант ДНС', description: 'Ходят слухи, что это самый оригинальный кослпей...' },
+    'robot':         { icon: '🤖', name: 'T9', description: 'Виновник твоих неправильна сообщения' },
+    'ghost':         { icon: '👻', name: 'Невидимка', description: 'Говорят что его не видно при свете дня...' },
     'panda':         { icon: '🐼', name: 'Панда', description: 'Няфка  👉 👈' },
-    'tiger':         { icon: '🐯', name: 'Тигр', description: 'ТЫГРЫЩЕ' },
-    'sun':           { icon: '☀️', name: 'Солнце', description: 'Ослепительно' },
+    'tiger':         { icon: '🐯', name: 'ТЫГРЫЩЕ', description: 'Что за лев этот тигр' },
     'moon':          { icon: '🌙', name: 'Луна', description: 'Ночной житель' }
 };
 

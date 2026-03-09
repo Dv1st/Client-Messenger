@@ -352,6 +352,21 @@ function initLogin() {
                 validateRegistrationForm();
             });
         });
+        // 🔒 Первоначальная валидация при загрузке (кнопка остаётся disabled)
+        validateRegistrationForm();
+    }
+
+    // 🔒 Валидация в реальном времени для формы входа
+    const loginUsernameInput = document.getElementById('loginUsername');
+    const loginPasswordInput = document.getElementById('loginPassword');
+    if (loginUsernameInput && loginPasswordInput) {
+        [loginUsernameInput, loginPasswordInput].forEach(input => {
+            input.addEventListener('input', () => {
+                validateLoginForm();
+            });
+        });
+        // 🔒 Первоначальная валидация при загрузке (кнопка остаётся disabled)
+        validateLoginForm();
     }
 }
 
@@ -393,6 +408,38 @@ function validateRegistrationForm() {
 }
 
 /**
+ * Валидация формы входа в реальном времени
+ * Кнопка "Войти" активна только когда заполнены оба поля
+ */
+function validateLoginForm() {
+    const loginBtn = document.getElementById('loginBtn');
+    const loginUsernameInput = document.getElementById('loginUsername');
+    const loginPasswordInput = document.getElementById('loginPassword');
+
+    if (!loginBtn || !loginUsernameInput || !loginPasswordInput) {
+        if (loginBtn) loginBtn.disabled = true;
+        return;
+    }
+
+    const username = loginUsernameInput.value.trim();
+    const password = loginPasswordInput.value;
+
+    // Кнопка активна только если оба поля заполнены
+    const isUsernameFilled = username.length > 0;
+    const isPasswordFilled = password.length > 0;
+
+    // Визуальная индикация для полей (опционально)
+    loginUsernameInput.classList.toggle('valid', isUsernameFilled);
+    loginUsernameInput.classList.toggle('invalid', !isUsernameFilled && username.length > 0);
+
+    loginPasswordInput.classList.toggle('valid', isPasswordFilled);
+    loginPasswordInput.classList.toggle('invalid', !isPasswordFilled && password.length > 0);
+
+    // Кнопка активна только если оба поля заполнены
+    loginBtn.disabled = !(isUsernameFilled && isPasswordFilled);
+}
+
+/**
  * Показ сообщения о статусе
  * @param {string} message - Сообщение
  * @param {boolean} isError - Ошибка ли это
@@ -408,10 +455,57 @@ function showStatus(message, isError = true) {
     statusEl.style.color = isError ? 'var(--error)' : 'var(--success)';
     statusEl.setAttribute('role', 'alert');
     statusEl.setAttribute('aria-live', 'polite');
-    
-    setTimeout(() => { 
-        statusEl.textContent = ''; 
+
+    setTimeout(() => {
+        statusEl.textContent = '';
     }, 5000);
+}
+
+/**
+ * Показ всплывающего уведомления (toast)
+ * @param {string} message - Сообщение
+ * @param {boolean} isError - Ошибка ли это
+ */
+function showToast(message, isError = false) {
+    // Удаляем существующие toast уведомления
+    const existingToast = document.getElementById('toastNotification');
+    if (existingToast) {
+        existingToast.remove();
+    }
+
+    // Создаём элемент уведомления
+    const toast = document.createElement('div');
+    toast.id = 'toastNotification';
+    toast.className = 'toast-notification';
+    toast.setAttribute('role', 'alert');
+    toast.setAttribute('aria-live', 'polite');
+    toast.textContent = message;
+    toast.style.cssText = `
+        position: fixed;
+        bottom: 24px;
+        right: 24px;
+        background: ${isError ? 'var(--error)' : 'var(--success)'};
+        color: white;
+        padding: 14px 20px;
+        border-radius: 8px;
+        font-size: 14px;
+        font-weight: 500;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+        z-index: 10000;
+        animation: slideInRight 0.3s ease;
+        max-width: 350px;
+        word-wrap: break-word;
+    `;
+
+    document.body.appendChild(toast);
+
+    // Автозакрытие через 3 секунды
+    setTimeout(() => {
+        toast.style.animation = 'slideOutRight 0.3s ease';
+        setTimeout(() => {
+            toast.remove();
+        }, 300);
+    }, 3000);
 }
 
 /**
@@ -847,8 +941,24 @@ function handleServerMessage(data) {
                 }
                 break;
             case 'group_invite_permission_updated':
+            case 'update_group_invite_permission_success':
                 if (typeof data.allow === 'boolean') {
                     allowGroupInvite = data.allow;
+                    // Визуальная обратная связь об успешном сохранении
+                    showToast('🔒 Настройка приватности сохранена', false);
+                }
+                break;
+            // ✅ Обработка успешного обновления видимости в каталоге
+            case 'update_visibility_success':
+                if (typeof data.isVisible === 'boolean') {
+                    isVisibleInDirectory = data.isVisible;
+                    // Визуальная обратная связь об успешном сохранении
+                    showToast(
+                        isVisibleInDirectory 
+                            ? '✅ Вы отображаетесь в списке пользователей' 
+                            : '🔒 Вы скрыты из списка пользователей',
+                        false
+                    );
                 }
                 break;
             // 👤 Обработка обновления значков
@@ -1614,7 +1724,7 @@ function showSidebarOnMobile() {
 }
 
 /**
- * Инициализация делегирования событий для списка пользователей
+ * Инициализация делегир��вания событий для списка пользователей
  */
 function initUserListEvents() {
     // Делегирование для списка пользователей (search results)
@@ -5147,7 +5257,7 @@ function toggleBadgeVisibility(badgeId) {
     const badgeIndex = userBadges.findIndex(b => b.id === badgeId);
     
     if (badgeIndex >= 0) {
-        // Значок уже есть у пользователя - переключаем видимость
+        // Значок уже есть у пользователя - пере���лючаем видимость
         userBadges[badgeIndex].visible = !userBadges[badgeIndex].visible;
         
         // Если значок скрыт, удаляем его из массива (не храним скрытые)
@@ -5695,9 +5805,16 @@ function loadSettings() {
         const settings = localStorage.getItem(STORAGE_KEYS.SETTINGS);
 
         if (!settings) {
-            // Применяем значение по умолчанию
+            // Применяем значения по умолчанию
             document.documentElement.style.setProperty('--own-message-bg', DEFAULT_MESSAGE_COLOR);
             if (DOM.messageColorSelect) DOM.messageColorSelect.value = DEFAULT_MESSAGE_COLOR;
+            
+            // 🔒 Устанавливаем значения по умолчанию для настроек приватности
+            isVisibleInDirectory = false; // По умолчанию скрыт из каталога
+            allowGroupInvite = false; // По умолчанию запрещено добавлять в группы
+            
+            if (DOM.showInDirectory) DOM.showInDirectory.checked = false;
+            if (DOM.allowGroupInvite) DOM.allowGroupInvite.checked = false;
             return;
         }
 
@@ -5738,16 +5855,21 @@ function loadSettings() {
             if (DOM.soundNotify) DOM.soundNotify.checked = data.soundEnabled;
         }
 
+        // 🔒 Настройки приватности с fallback на false по умолчанию
         if (typeof data.isVisibleInDirectory === 'boolean') {
             isVisibleInDirectory = data.isVisibleInDirectory;
-            if (DOM.showInDirectory) DOM.showInDirectory.checked = data.isVisibleInDirectory;
+        } else {
+            isVisibleInDirectory = false;
         }
+        if (DOM.showInDirectory) DOM.showInDirectory.checked = isVisibleInDirectory;
 
-        // ✨ Загрузка настройки для групповых чатов
+        // ✨ Настройка для групповых чатов с fallback на false по умолчанию
         if (typeof data.allowGroupInvite === 'boolean') {
             allowGroupInvite = data.allowGroupInvite;
-            if (DOM.allowGroupInvite) DOM.allowGroupInvite.checked = data.allowGroupInvite;
+        } else {
+            allowGroupInvite = false;
         }
+        if (DOM.allowGroupInvite) DOM.allowGroupInvite.checked = allowGroupInvite;
     } catch (e) {
         console.error('❌ Load settings error:', e);
     }
@@ -6073,21 +6195,37 @@ function initSettings() {
         });
     }
 
+    // 🔒 Настройка приватности: Отображать в списке пользователей
     if (DOM.showInDirectory) {
         DOM.showInDirectory.addEventListener('change', (e) => {
             isVisibleInDirectory = e.target.checked;
             saveSettings();
+            // Отправляем на сервер обновление видимости
             sendToServer({ type: 'update_visibility', isVisible: isVisibleInDirectory });
+            // Визуальная обратная связь об успешном сохранении
+            showToast(
+                isVisibleInDirectory 
+                    ? '✅ Вы отображаетесь в списке пользователей' 
+                    : '🔒 Вы скрыты из списка пользователей',
+                false
+            );
         });
     }
 
-    // ✨ Обработка настройки для групповых чатов
+    // ✨ Настройка приватности: Разрешить добавлять в групповые чаты
     if (DOM.allowGroupInvite) {
         DOM.allowGroupInvite.addEventListener('change', (e) => {
             allowGroupInvite = e.target.checked;
             saveSettings();
-            // Отправляем на сервер обновление
+            // Отправляем на сервер обновление разрешения
             sendToServer({ type: 'update_group_invite_permission', allow: allowGroupInvite });
+            // Визуальная обратная связь об успешном сохранении
+            showToast(
+                allowGroupInvite 
+                    ? '✅ Другие пользователи могут добавлять вас в группы' 
+                    : '🔒 Запрещено добавлять вас в группы',
+                false
+            );
         });
     }
 
