@@ -205,21 +205,6 @@ function escapeHtml(str) {
 }
 
 /**
- * Безопасная вставка HTML с очисткой
- * @param {HTMLElement} element - Элемент для вставки
- * @param {string} html - HTML для вставки
- */
-function setSafeInnerHTML(element, html) {
-    if (!element) return;
-    element.innerHTML = '';
-    const temp = document.createElement('div');
-    temp.innerHTML = html;
-    while (temp.firstChild) {
-        element.appendChild(temp.firstChild);
-    }
-}
-
-/**
  * Валидация имени пользователя
  * @param {string} username - Имя для проверки
  * @returns {boolean} - Валидно ли имя
@@ -544,7 +529,6 @@ function connectToServer(authMessage) {
         socket = new WebSocket(WS_URL);
 
         socket.onopen = () => {
-            console.log('✅ Connected to', WS_URL);
             reconnectAttempts = 0;
             if (authMessage) socket.send(JSON.stringify(authMessage));
         };
@@ -565,11 +549,9 @@ function connectToServer(authMessage) {
 
         socket.onerror = (error) => {
             console.error('❌ WebSocket error:', error);
-            console.log('💡 Проверь: 1) сервер запущен 2) порт 3) CORS 4) wss/ssl');
         };
 
         socket.onclose = (event) => {
-            console.log('🔌 Disconnected:', event.code, event.reason || '');
 
             if (currentUser && event.code !== 1000 && event.code !== 1001) {
                 reconnectAttempts++;
@@ -686,7 +668,6 @@ function handleServerMessage(data) {
                         footerUserInitials.textContent = currentUser.slice(0, 2).toUpperCase();
                     }
 
-                    console.log('✅ Registered and logged in:', currentUser);
                     sendToServer({ type: 'get_users' });
                     sendToServer({ type: 'get_groups' });
                     requestAudioPermission();
@@ -776,7 +757,7 @@ function handleServerMessage(data) {
                 break;
             case 'message_deleted':
                 if (data.timestamp && data.deletedBy) {
-                    handleMessageDeleted(data.timestamp, data.deletedBy);
+                    handleRemoteMessageDelete(data.timestamp, data.deletedBy);
                 }
                 break;
             case 'message_reaction':
@@ -936,7 +917,6 @@ function handleLoginSuccess(data) {
         DOM.allowGroupInvite.checked = allowGroupInvite;
     }
 
-    console.log('✅ Connected:', currentUser);
     sendToServer({ type: 'get_users' });
     sendToServer({ type: 'get_groups' }); // 👥 Запрашиваем список групп
     requestBadgeCatalog(); // 🏅 Запрашиваем каталог значков
@@ -980,10 +960,8 @@ function requestAudioPermission() {
         audio.muted = true;
         audio.play().then(() => {
             audio.muted = false;
-            console.log('✅ Audio permission granted');
         }).catch(err => {
             // 🔒 Разрешение не получено (это нормально до первого взаимодействия)
-            console.log('⚠️ Audio permission pending (will retry on user interaction)');
         });
     } catch (e) {
         console.warn('⚠️ Audio permission error:', e);
@@ -999,7 +977,6 @@ function requestAudioPermission() {
  */
 function handleTypingIndicator(from, isTyping) {
     // Заглушка - реализация в основной части кода
-    // console.log(`📝 ${from} is typing: ${isTyping}`);
 }
 
 /**
@@ -1008,7 +985,6 @@ function handleTypingIndicator(from, isTyping) {
 function loadMessageHistory(messages, chatName, groupId) {
     if (!messages || !Array.isArray(messages)) return;
 
-    console.log(`📜 Loaded ${messages.length} messages for ${chatName || groupId}`);
 
     if (!DOM.messagesList) return;
 
@@ -1036,7 +1012,6 @@ function loadMessageHistory(messages, chatName, groupId) {
         });
         DOM.messagesList.appendChild(fragment);
         DOM.messagesList.scrollTop = DOM.messagesList.scrollHeight;
-        console.log(`📜 ${messages.length} messages rendered`);
     }
 }
 
@@ -1045,7 +1020,6 @@ function loadMessageHistory(messages, chatName, groupId) {
  */
 function handleChatDeleted(chatName) {
     // Заглушка
-    console.log(`🗑️ Chat deleted: ${chatName}`);
 }
 
 /**
@@ -1053,7 +1027,6 @@ function handleChatDeleted(chatName) {
  */
 function confirmMessageDelivery(timestamp) {
     // Заглушка
-    // console.log(`✅ Message confirmed: ${timestamp}`);
 }
 
 /**
@@ -1088,6 +1061,41 @@ function updateMessageDeliveryStatus(timestamp, status) {
             console.error('❌ updateMessageDeliveryStatus error:', e);
         }
     }
+}
+
+/**
+ * Обработка подтверждения прочтения сообщения
+ * @param {string} from - Кто прочитал
+ * @param {number} timestamp - Временная метка сообщения
+ */
+function handleMessageReadReceipt(from, timestamp) {
+    // Обновляем статус сообщения на "прочитано"
+    updateMessageDeliveryStatus(timestamp, 'read');
+}
+
+/**
+ * Обработка реакции на сообщение
+ * @param {Object} data - Данные реакции
+ */
+function handleMessageReaction(data) {
+    
+    if (!DOM.messagesList || !data.timestamp) return;
+    
+    // Находим элемент сообщения
+    const messageEl = DOM.messagesList.querySelector(`.message[data-timestamp="${data.timestamp}"]`);
+    if (!messageEl) return;
+    
+    // Обновляем или добавляем реакцию
+    let reactionsEl = messageEl.querySelector('.message-reactions');
+    if (!reactionsEl) {
+        reactionsEl = document.createElement('div');
+        reactionsEl.className = 'message-reactions';
+        messageEl.appendChild(reactionsEl);
+    }
+    
+    // Обновляем отображение реакции
+    reactionsEl.textContent = data.reaction;
+    reactionsEl.title = `Реакция от ${data.sender || 'пользователя'}`;
 }
 
 // ============================================================================
@@ -1174,7 +1182,6 @@ function handleMessageReceive(data) {
         // 🔹 Проверяем, не было ли уже добавлено это сообщение (защита от дублирования)
         const existingMessage = DOM.messagesList.querySelector(`.message[data-timestamp="${data.timestamp}"]`);
         if (existingMessage) {
-            console.log('⚠️ Message already exists, skipping:', data.timestamp);
             return;
         }
 
@@ -1255,10 +1262,8 @@ function initChat() {
     if (DOM.attachFileBtn) {
         DOM.attachFileBtn.addEventListener('click', (e) => {
             e.preventDefault();
-            console.log('📎 Attach button clicked');
             if (DOM.fileInput) {
                 DOM.fileInput.click();
-                console.log('📎 File input clicked');
             } else {
                 console.error('❌ File input not found');
             }
@@ -1269,7 +1274,6 @@ function initChat() {
 
     if (DOM.fileInput) {
         DOM.fileInput.addEventListener('change', handleFileSelect);
-        console.log('📎 File input listener attached');
     } else {
         console.error('❌ File input not found');
     }
@@ -1428,10 +1432,8 @@ function initSidebar() {
                 // Проверяем, есть ли уже чат с этим пользователем
                 if (window.hasChatWithUser(username)) {
                     // Чат уже существует - просто открываем его
-                    console.log('✅ Чат уже существует, открываем:', username);
                 } else {
                     // Чата нет - создаём новый
-                    console.log('✅ Создаём новый чат:', username);
                     addChatToActive(username);
                 }
                 // Открываем чат с пользователем
@@ -1463,15 +1465,6 @@ function initSidebar() {
             window.sidebarComponent.renderChatsList();
         }
     }, 100);
-}
-
-/**
- * Показать sidebar на мобильном устройстве
- */
-function showSidebarOnMobile() {
-    if (!DOM.sidebar) return;
-    
-    DOM.sidebar.classList.add('mobile-visible');
 }
 
 /**
@@ -1651,7 +1644,6 @@ function updateUsersList(serverUsers) {
         // 🔐 УДАЛЯЕМ пользователей, которых нет на сервере
         users = users.filter(user => {
             if (!serverUserNames.has(user.name)) {
-                console.log(`🗑️ Removing user "${user.name}" - not on server`);
                 return false;
             }
             return true;
@@ -1995,7 +1987,6 @@ window.renderChatsListData = function() {
  * @returns {Array} - Массив пользователей с allowPublicView
  */
 window.getPublicUsersData = function() {
-    console.log('🔵 getPublicUsersData called, users.length:', users.length, 'currentUser:', currentUser);
     const result = users
         .filter(user => {
             // Показываем пользователей, которые разрешили показ в каталоге
@@ -2009,7 +2000,6 @@ window.getPublicUsersData = function() {
             status: user.status || 'offline',
             allowPublicView: user.isVisibleInDirectory !== false
         }));
-    console.log('🔵 getPublicUsersData returning:', result.length, 'users');
     return result;
 };
 
@@ -2070,17 +2060,13 @@ function getUserProfileData(username) {
  * @param {string} username - Имя пользователя
  */
 function addChatToActive(username) {
-    console.log('🔵 addChatToActive called with:', username);
-    console.log('🔵 users array:', users.map(u => u.name));
     
     const user = users.find(u => u.name === username);
-    console.log('🔵 Found user:', user ? user.name : 'not found');
     
     if (user) {
         user.activeChat = currentUser;
         saveUsersToStorage();
         renderAll();
-        console.log('✅ Chat added to active:', username);
     } else {
         console.warn('⚠️ addChatToActive: user not found in users array:', username);
     }
@@ -2127,15 +2113,6 @@ function getUnreadMessagesCount(username) {
     } catch (e) {
         return 0;
     }
-}
-
-/**
- * ✨ Проверить наличие непрочитанных сообщений
- * @param {string} username - Имя пользователя
- * @returns {boolean} - Есть ли непрочитанные
- */
-function hasUnreadMessages(username) {
-    return getUnreadMessagesCount(username) > 0;
 }
 
 /**
@@ -2275,7 +2252,6 @@ function updateChatHeaderAvatar(username) {
 }
 
 function selectUser(username) {
-    console.log('🔵 selectUser called with:', username);
 
     if (!username) {
         console.warn('⚠️ selectUser: empty username');
@@ -2289,7 +2265,6 @@ function selectUser(username) {
     }
 
     selectedUser = username;
-    console.log('🔵 selectedUser set to:', selectedUser);
 
     if (DOM.chatTitle) {
         // Обновляем заголовок чата со значками и аватаркой
@@ -2317,7 +2292,6 @@ function selectUser(username) {
 
     if (DOM.messagesList) {
         DOM.messagesList.innerHTML = '';
-        console.log('🔵 messagesList cleared');
 
         // 🔐 Загружаем сообщения с сервера
         sendToServer({
@@ -2328,7 +2302,6 @@ function selectUser(username) {
     }
 
     setInputPanelVisible(true);
-    console.log('🔵 Input panel shown');
 
     // Обновляем статус собеседника (не текущего пользователя!)
     updateChatUserStatus(username);
@@ -2343,7 +2316,6 @@ function selectUser(username) {
     sendToServer({ type: 'chat_open', chatWith: username });
 
     setTimeout(() => { if (DOM.messageBox) DOM.messageBox.focus(); }, 100);
-    console.log('🔵 selectUser completed');
 }
 
 /**
@@ -2375,47 +2347,6 @@ function showGeneralChat() {
 
     sendToServer({ type: 'chat_open', chatWith: null });
     setInputPanelVisible(false);
-}
-
-/**
- * Закрепление пользователя
- * @param {string} username - Имя пользователя
- */
-function togglePin(username) {
-    const userObj = users.find(u => u.name === username);
-    if (userObj) {
-        userObj.isPinned = !userObj.isPinned;
-        users.sort((a, b) => (b.isPinned ? 1 : 0) - (a.isPinned ? 1 : 0));
-        saveUsersToStorage();
-        renderAll();
-    }
-}
-
-/**
- * Удаление чата
- * @param {string} username - Имя пользователя
- * @param {HTMLElement} itemElement - Элемент списка
- */
-function deleteChat(username, itemElement) {
-    if (confirm('Удалить чат с "' + username + '"?')) {
-        itemElement.style.opacity = '0';
-        itemElement.style.pointerEvents = 'none';
-        setTimeout(() => itemElement.remove(), 200);
-
-        if (selectedUser === username) showGeneralChat();
-        
-        // ✨ При удалении чата сбрасываем activeChat у пользователя
-        // Пользователь вернётся в общий список (если isVisibleInDirectory = true)
-        // Сообщения сохраняем, чтобы чат можно было восстановить
-        const user = users.find(u => u.name === username);
-        if (user) {
-            user.activeChat = null;
-            saveUsersToStorage();
-            renderAll();
-        }
-        
-        sendToServer({ type: 'delete_chat', chatName: username });
-    }
 }
 
 // ============================================================================
@@ -2915,86 +2846,6 @@ function handleSearchEnter() {
 // ============================================================================
 // 🔹 Контекстное меню
 // ============================================================================
-let contextMenuTarget = null;
-
-function showFolderContextMenu(e, username) {
-    contextMenuTarget = username;
-
-    const existingMenu = document.querySelector('.context-menu');
-    if (existingMenu) existingMenu.remove();
-
-    const menu = document.createElement('div');
-    menu.className = 'context-menu';
-
-    const menuWidth = 180;
-    const menuHeight = 150;
-    menu.style.left = Math.min(e.pageX, window.innerWidth - menuWidth) + 'px';
-    menu.style.top = Math.min(e.pageY, window.innerHeight - menuHeight) + 'px';
-
-    const currentFolderUser = getUserFolder(username);
-
-    const items = [
-        { folder: 'all', label: '📁 Все', active: currentFolderUser === 'all' },
-        { divider: true },
-        { folder: 'personal', label: '💕 Личное', active: currentFolderUser === 'personal' },
-        { folder: 'work', label: '💼 Работа', active: currentFolderUser === 'work' }
-    ];
-
-    items.forEach(item => {
-        if (item.divider) {
-            const divider = document.createElement('div');
-            divider.className = 'context-menu-divider';
-            menu.appendChild(divider);
-        } else {
-            const menuItem = document.createElement('div');
-            menuItem.className = 'context-menu-item' + (item.active ? ' active' : '');
-            menuItem.textContent = (item.active ? '✓ ' : '') + item.label;
-            menuItem.dataset.folder = item.folder;
-            menu.appendChild(menuItem);
-        }
-    });
-
-    document.body.appendChild(menu);
-
-    const cleanupMenu = () => {
-        menu.remove();
-        document.removeEventListener('click', closeMenu);
-    };
-
-    const closeMenu = (clickEvent) => {
-        if (!menu.contains(clickEvent.target)) cleanupMenu();
-    };
-
-    menu.querySelectorAll('.context-menu-item').forEach(item => {
-        item.addEventListener('click', () => {
-            setUserFolder(username, item.dataset.folder);
-            cleanupMenu();
-        });
-    });
-
-    setTimeout(() => {
-        document.addEventListener('click', closeMenu, { once: true });
-    }, 100);
-}
-
-function getUserFolder(username) {
-    try {
-        return localStorage.getItem(`chat_folder_${username}`) || 'all';
-    } catch (e) {
-        return 'all';
-    }
-}
-
-function setUserFolder(username, folder) {
-    try {
-        localStorage.setItem(`chat_folder_${username}`, folder);
-        renderAll();
-    } catch (e) {
-        console.error('❌ Save folder error:', e);
-    }
-}
-
-// ============================================================================
 // 🔹 Отправка сообщений
 // ============================================================================
 async function sendMessage() {
@@ -3231,7 +3082,6 @@ function compressImage(file, maxWidth = 1920, maxHeight = 1920, quality = 0.7) {
                                 file.name.replace(/\.[^/.]+$/, '.jpg'),
                                 { type: 'image/jpeg' }
                             );
-                            console.log(`📸 Image compressed: ${file.size} → ${compressedFile.size} bytes (${Math.round((1 - compressedFile.size / file.size) * 100)}% saved)`);
                             resolve(compressedFile);
                         } else {
                             // Если сжатие не удалось, возвращаем оригинал
@@ -3368,7 +3218,6 @@ function compressVideo(file, maxWidth = 1280, maxHeight = 720, videoBitsPerSecon
                     { type: 'video/webm' }
                 );
                 
-                console.log(`🎥 Video compressed: ${file.size} → ${compressedFile.size} bytes (${Math.round((1 - compressedFile.size / file.size) * 100)}% saved)`);
                 resolve(compressedFile);
             };
 
@@ -4505,7 +4354,6 @@ function updateBadgeCatalogFromServer(catalog) {
         }
     });
 
-    console.log(`🏅 Badge catalog updated from server: ${catalog.length} items`);
 
     // Если открыт профиль - перерисовываем значки
     if (DOM.profileModal && !DOM.profileModal.classList.contains('hidden')) {
@@ -4671,7 +4519,6 @@ function deleteCurrentChat() {
             const updatedChats = activeChats.filter(chat => chat.userId !== selectedUser);
             localStorage.setItem(activeChatsKey, JSON.stringify(updatedChats));
 
-            console.log(`✅ Личный чат с ${selectedUser} удалён`);
         } else if (selectedGroup) {
             // Удаление группы (только если пользователь создатель)
             const group = groups.find(g => g.id === selectedGroup);
@@ -4689,7 +4536,6 @@ function deleteCurrentChat() {
                     user_id: currentUser
                 });
 
-                console.log(`✅ Группа "${group.name}" удалена`);
             } else {
                 alert('Только создатель может удалить группу');
                 return;
@@ -5169,7 +5015,7 @@ function updateChatTitleWithBadges() {
     const visibleBadges = userBadges.filter(b => b.visible);
 
     if (selectedUser === currentUser && visibleBadges.length > 0) {
-        // Показываем первый значок в заголовке для своего профиля
+        // По��азываем первый значок в заголовке для своего профиля
         const badgeInfo = getBadgeInfo(visibleBadges[0].id);
         if (badgeInfo) {
             DOM.chatTitle.textContent = `${badgeInfo.icon} ${selectedUser}`;
@@ -5255,20 +5101,6 @@ function adjustColorBrightness(hex, percent) {
     return '#' + (0x1000000 + R * 0x10000 + G * 0x100 + B).toString(16).slice(1);
 }
 
-/**
- * ✨ Изменение прозрачности цвета (смешивание с чёрным)
- * @param {string} hex - HEX цвет (#RRGGBB)
- * @param {number} opacity - Прозрачность (0-1)
- * @returns {string} - Новый цвет в HEX
- */
-function adjustColorOpacity(hex, opacity) {
-    const num = parseInt(hex.replace('#', ''), 16);
-    const R = Math.round(((num >> 16) & 0xFF) * opacity);
-    const G = Math.round(((num >> 8) & 0xFF) * opacity);
-    const B = Math.round((num & 0xFF) * opacity);
-    return '#' + (0x1000000 + R * 0x10000 + G * 0x100 + B).toString(16).slice(1);
-}
-
 // ============================================================================
 // 🔹 Горячие клавиши
 // ============================================================================
@@ -5329,7 +5161,6 @@ function autoLogin() {
                     token: sessionData.token,
                     deviceId: sessionData.deviceId
                 });
-                console.log('✅ Auto-login successful for:', currentUser);
                 return true;
             } else {
                 localStorage.removeItem(AUTH_SESSION_KEY);
@@ -5348,32 +5179,6 @@ function autoLogin() {
  * @param {string} username - Имя пользователя
  * @param {string} token - Токен сессии
  * @param {string} deviceId - ID устройства
- */
-function saveAuthSession(username, token, deviceId) {
-    try {
-        const sessionData = {
-            username: username,
-            token: token, // 🔒 Ток��н сессии д����я авто-��х��да
-            deviceId: deviceId, // ID устройства
-            passwordHint: username.substring(0, 2) + '•••', // 🔒 Безопасная подсказка
-            timestamp: Date.now(),
-            expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000 // 7 дней
-        };
-        localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(sessionData));
-        console.log('💾 Session saved for:', username);
-    } catch (e) {
-        console.error('❌ Save session error:', e);
-        // Очищаем чувствительные данные при ошибке
-        try {
-            localStorage.removeItem(AUTH_SESSION_KEY);
-        } catch (clearErr) {
-            console.error('❌ Clear session error:', clearErr);
-        }
-    }
-}
-
-/**
- * Выход из аккаунта
  */
 function performLogout() {
     // Закрываем модальное окно настроек
@@ -5418,7 +5223,6 @@ function performLogout() {
     const loginStatus = document.getElementById('loginStatus');
     if (loginStatus) loginStatus.textContent = '';
 
-    console.log('🚪 User logged out');
 }
 
 // ============================================================================
@@ -5518,14 +5322,6 @@ function loadMessagesFromStorage(username) {
     }
 }
 
-function clearChatStorage(username) {
-    try {
-        const key = `chat_messages_${currentUser}_${username}`;
-        localStorage.removeItem(key);
-    } catch (e) {
-        console.error('❌ Clear chat error:', e);
-    }
-}
 
 // ============================================================================
 // 🔹 На��тройки (тема, шрифт, цвет)
@@ -6169,7 +5965,6 @@ function updateTwoFactorUI() {
 
 // Обработка ответов сервера для 2FA
 function handleTwoFAMessage(data) {
-    console.log('🔐 2FA message received:', data.type, data);
     
     switch (data.type) {
         case '2fa_setup_response':
@@ -6179,12 +5974,10 @@ function handleTwoFAMessage(data) {
             
             if (qrEl && data.qrCodeUrl) {
                 qrEl.src = data.qrCodeUrl;
-                console.log('🔐 QR code URL set:', data.qrCodeUrl);
             }
             
             if (secretEl && data.secret) {
                 secretEl.textContent = data.secret;
-                console.log('🔐 Secret set:', data.secret);
             }
             
             showTwoFactorStep(1);

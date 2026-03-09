@@ -41,7 +41,8 @@ async function initializeDatabase() {
     // Таблица пользователей
     await client.query(`
       CREATE TABLE IF NOT EXISTS users (
-        username TEXT PRIMARY KEY,
+        user_id SERIAL PRIMARY KEY,
+        username TEXT UNIQUE NOT NULL,
         password_hash TEXT NOT NULL,
         salt TEXT NOT NULL,
         created_at BIGINT,
@@ -50,14 +51,15 @@ async function initializeDatabase() {
         allow_group_invite BOOLEAN DEFAULT FALSE,
         two_factor_secret TEXT,
         two_factor_enabled BOOLEAN DEFAULT FALSE,
-        two_factor_backup_codes TEXT
+        two_factor_backup_codes TEXT,
+        user_badges JSONB DEFAULT '[]'::jsonb
       )
     `);
 
-    // 🔧 Добавляем недостающие колонки (миграции)
+    // Индекс для быстрого поиска по user_id
     await client.query(`
-      ALTER TABLE users
-      ADD COLUMN IF NOT EXISTS user_badges JSONB DEFAULT '[]'::jsonb
+      CREATE INDEX IF NOT EXISTS idx_users_user_id
+      ON users(user_id)
     `);
 
     // Таблица групп
@@ -161,6 +163,82 @@ async function getAllUsers() {
 }
 
 /**
+ * Поиск пользователя по user_id
+ * @param {number} userId - Уникальный ID пользователя
+ * @returns {Promise<Object|null>}
+ */
+async function getUserById(userId) {
+  const result = await pool.query(
+    'SELECT * FROM users WHERE user_id = $1',
+    [userId]
+  );
+  return result.rows[0] || null;
+}
+
+/**
+ * Поиск пользователя по username
+ * @param {string} username - Имя пользователя
+ * @returns {Promise<Object|null>}
+ */
+async function getUserByUsername(username) {
+  const result = await pool.query(
+    'SELECT * FROM users WHERE username = $1',
+    [username]
+  );
+  return result.rows[0] || null;
+}
+
+/**
+ * Выдача хначка пользователю по user_id
+ * @param {number} userId - ID пользователя
+ * @param {string} badgeId - ID хначка (эмодзи)
+ * @returns {Promise<boolean>}
+ */
+async function addUserBadge(userId, badgeId) {
+  try {
+    const user = await getUserById(userId);
+    if (!user) return false;
+
+    const badges = user.user_badges || [];
+    if (!badges.includes(badgeId)) {
+      badges.push(badgeId);
+      await pool.query(
+        'UPDATE users SET user_badges = $1 WHERE user_id = $2',
+        [JSON.stringify(badges), userId]
+      );
+      return true;
+    }
+    return false;
+  } catch (err) {
+    console.error('❌ addUserBadge error:', err);
+    return false;
+  }
+}
+
+/**
+ * Удаление хначка у пользователя по user_id
+ * @param {number} userId - ID пользователя
+ * @param {string} badgeId - ID хначка (эмодзи)
+ * @returns {Promise<boolean>}
+ */
+async function removeUserBadge(userId, badgeId) {
+  try {
+    const user = await getUserById(userId);
+    if (!user) return false;
+
+    const badges = (user.user_badges || []).filter(b => b !== badgeId);
+    await pool.query(
+      'UPDATE users SET user_badges = $1 WHERE user_id = $2',
+      [JSON.stringify(badges), userId]
+    );
+    return true;
+  } catch (err) {
+    console.error('❌ removeUserBadge error:', err);
+    return false;
+  }
+}
+
+/**
  * Сохранение пользователя
  * 🔒 Параметризованный запрос для защиты от SQL-инъекций
  */
@@ -185,6 +263,7 @@ async function saveUser(username, userData) {
   console.log(`   salt: ${userData.salt ? userData.salt.substring(0, 16) + '...' : 'MISSING'}`);
   console.log(`   isVisibleInDirectory: ${userData.isVisibleInDirectory ?? false}`);
   console.log(`   allowGroupInvite: ${userData.allowGroupInvite ?? false}`);
+  console.log(`   userBadges: ${JSON.stringify(userData.userBadges ?? [])}`);
 
   try {
     const result = await pool.query(
@@ -203,12 +282,16 @@ async function saveUser(username, userData) {
          two_factor_secret = EXCLUDED.two_factor_secret,
          two_factor_enabled = EXCLUDED.two_factor_enabled,
          two_factor_backup_codes = EXCLUDED.two_factor_backup_codes,
-         user_badges = EXCLUDED.user_badges`,
+         user_badges = EXCLUDED.user_badges
+       RETURNING user_id`,
       values
     );
 
     console.log(`✅ saveUser completed: ${username}`);
     console.log(`   Rows affected: ${result.rowCount}`);
+    console.log(`   user_id: ${result.rows[0]?.user_id}`);
+    
+    return result.rows[0]?.user_id;
   } catch (err) {
     console.error(`❌ saveUser error for ${username}:`, err.message);
     console.error(`   SQL State: ${err.code}`);
@@ -401,6 +484,10 @@ module.exports = {
   pool,
   initializeDatabase,
   getAllUsers,
+  getUserById,
+  getUserByUsername,
+  addUserBadge,
+  removeUserBadge,
   saveUser,
   getAllGroups,
   getGroupMembers,
