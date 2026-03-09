@@ -637,9 +637,17 @@ function connectToServer(authMessage) {
         socket = new WebSocket(WS_URL);
 
         socket.onopen = () => {
+            // 🔧 FIX: Расширенное логирование подключения
             console.log('✅ Connected to', WS_URL);
+            console.log('🔌 WebSocket state:', socket.readyState === WebSocket.OPEN ? 'OPEN' : socket.readyState);
             reconnectAttempts = 0;
             if (authMessage) socket.send(JSON.stringify(authMessage));
+            
+            // 🔧 FIX: Отправляем сообщения из очереди после переподключения
+            if (isReconnecting) {
+                isReconnecting = false;
+                flushMessageQueue();
+            }
         };
 
         socket.onmessage = (event) => {
@@ -649,6 +657,10 @@ function connectToServer(authMessage) {
                 if (!data || typeof data !== 'object') {
                     console.warn('⚠️ Invalid message format from server');
                     return;
+                }
+                // 🔧 FIX: Логирование входящих сообщений (кратко)
+                if (data.type === 'receive_message') {
+                    console.log('📩 Received message from:', data.sender, 'at:', new Date(data.timestamp).toLocaleTimeString());
                 }
                 handleServerMessage(data);
             } catch (e) {
@@ -663,6 +675,11 @@ function connectToServer(authMessage) {
 
         socket.onclose = (event) => {
             console.log('🔌 Disconnected:', event.code, event.reason || '');
+            
+            // 🔧 FIX: Устанавливаем флаг переподключения
+            if (event.code !== 1000 && event.code !== 1001) {
+                isReconnecting = true;
+            }
 
             if (currentUser && event.code !== 1000 && event.code !== 1001) {
                 reconnectAttempts++;
@@ -696,6 +713,9 @@ function connectToServer(authMessage) {
                             });
                         }
                     }, delay);
+                } else {
+                    // 🔧 FIX: Превышено количество попыток - показываем ошибку
+                    showToast('❌ Не удалось подключиться к серверу', true);
                 }
             }
         };
@@ -714,6 +734,14 @@ function sendToServer(message) {
         socket.send(JSON.stringify(message));
         return true;
     }
+    
+    // 🔧 FIX: Если соединение закрыто и это сообщение - добавляем в очередь
+    if (message.type === 'send_message' || message.type === 'send_group_message') {
+        console.warn('⚠️ WebSocket not ready, queueing message');
+        queueMessage(message);
+        return false;
+    }
+    
     console.warn('⚠️ WebSocket not ready');
     return false;
 }
@@ -768,16 +796,6 @@ function handleServerMessage(data) {
                     // Показываем чат
                     DOM.loginWindow?.classList.add('hidden');
                     DOM.chatWindow?.classList.remove('hidden');
-
-                    // Обновляем footer sidebar
-                    const footerUserName = document.getElementById('footerUserName');
-                    const footerUserInitials = document.getElementById('footerUserInitials');
-                    if (footerUserName) {
-                        footerUserName.textContent = currentUser;
-                    }
-                    if (footerUserInitials) {
-                        footerUserInitials.textContent = currentUser.slice(0, 2).toUpperCase();
-                    }
 
                     console.log('✅ Registered and logged in:', currentUser);
                     sendToServer({ type: 'get_users' });
@@ -1043,16 +1061,6 @@ function handleLoginSuccess(data) {
     DOM.loginWindow?.classList.add('hidden');
     DOM.chatWindow?.classList.remove('hidden');
 
-    // Обновляем footer sidebar
-    const footerUserName = document.getElementById('footerUserName');
-    const footerUserInitials = document.getElementById('footerUserInitials');
-    if (footerUserName) {
-        footerUserName.textContent = currentUser;
-    }
-    if (footerUserInitials) {
-        footerUserInitials.textContent = currentUser.slice(0, 2).toUpperCase();
-    }
-
     // 📥 Обновляем UI настроек конфиденциальности из сервера
     if (DOM.showInDirectory) {
         DOM.showInDirectory.checked = isVisibleInDirectory;
@@ -1315,10 +1323,98 @@ function handleChatDeleted(chatName) {
 
 /**
  * Подтверждение доставки сообщения
+ * @param {number} timestamp - Временная метка сообщения
  */
 function confirmMessageDelivery(timestamp) {
-    // Заглушка
-    // console.log(`✅ Message confirmed: ${timestamp}`);
+    if (!timestamp) {
+        console.warn('⚠️ confirmMessageDelivery: invalid timestamp');
+        return;
+    }
+    
+    // 🔧 FIX: Логирование подтверждения
+    console.log('✅ Message confirmed:', timestamp);
+    
+    // Обновляем статус доставки
+    updateMessageDeliveryStatus(timestamp, 'sent');
+    
+    // 🔧 FIX: Также обновляем в localStorage
+    if (selectedUser) {
+        try {
+            const messages = loadMessagesFromStorage(selectedUser);
+            const msg = messages.find(m => m.timestamp === timestamp);
+            if (msg) {
+                msg.deliveryStatus = 'sent';
+                localStorage.setItem(`chat_messages_${currentUser}_${selectedUser}`, JSON.stringify(messages));
+            }
+        } catch (e) {
+            console.error('❌ confirmMessageDelivery error:', e);
+        }
+    }
+}
+
+/**
+ * 🔧 FIX: Отмена отправки сообщения по таймауту
+ * @param {number} timestamp - Временная метка сообщения
+ */
+function cancelMessageDelivery(timestamp) {
+    if (!timestamp) return;
+    
+    console.warn('⚠️ Message delivery timeout:', timestamp);
+    
+    // Обновляем статус на ошибку
+    if (DOM.messagesList) {
+        const messages = DOM.messagesList.querySelectorAll('.message.own');
+        messages.forEach(msg => {
+            if (msg.dataset.timestamp == timestamp) {
+                const checksEl = msg.querySelector('.checks');
+                if (checksEl) {
+                    checksEl.className = 'checks';
+                    checksEl.textContent = '⚠️';
+                    checksEl.title = 'Ошибка доставки';
+                    msg.style.opacity = '0.6';
+                }
+            }
+        });
+    }
+    
+    // Показываем уведомление
+    showToast('⚠️ Сообщение не было доставлено', true);
+}
+
+/**
+ * 🔧 FIX: Очередь сообщений на случай разрыва соединения
+ */
+let messageQueue = [];
+let isReconnecting = false;
+
+/**
+ * Добавить сообщение в очередь
+ */
+function queueMessage(message) {
+    messageQueue.push({
+        ...message,
+        queuedAt: Date.now()
+    });
+    console.log('📭 Message queued:', messageQueue.length);
+}
+
+/**
+ * Отправить все сообщения из очереди
+ */
+async function flushMessageQueue() {
+    if (messageQueue.length === 0 || !socket || socket.readyState !== WebSocket.OPEN) {
+        return;
+    }
+    
+    console.log('📤 Flushing message queue:', messageQueue.length);
+    
+    const queue = [...messageQueue];
+    messageQueue = [];
+    
+    for (const msg of queue) {
+        sendToServer(msg);
+        await new Promise(resolve => setTimeout(resolve, 100));
+    }
 }
 
 /**
@@ -2273,13 +2369,32 @@ window.renderChatsListData = function() {
 
 /**
  * Получить публичных пользователей для поиска
- * @returns {Array} - Массив пользователей с allowPublicView
+ * @returns {Array} - Массив пользователей с allowPublicView, исключая тех с кем уже есть чат
  */
 window.getPublicUsersData = function() {
     return users
         .filter(user => {
-            // Показываем пользователей, которые разрешили показ в каталоге
-            return user.isVisibleInDirectory !== false && user.name !== currentUser;
+            // 🔧 FIX: Исключаем текущего пользователя
+            if (user.name === currentUser) return false;
+            
+            // Показываем только пользователей, которые разрешили показ в каталоге
+            if (user.isVisibleInDirectory === false) return false;
+            
+            // 🔧 FIX: Исключаем пользователей, с которыми уже есть активный чат (переписка)
+            const key = `chat_messages_${currentUser}_${user.name}`;
+            const saved = localStorage.getItem(key);
+            if (saved) {
+                try {
+                    const messages = JSON.parse(saved);
+                    if (messages && messages.length > 0) {
+                        return false; // Уже есть чат - не показывать в поиске
+                    }
+                } catch (e) {
+                    // Ошибка парсинга - показываем пользователя
+                }
+            }
+            
+            return true;
         })
         .map(user => ({
             id: 'user_' + user.name,
@@ -3342,12 +3457,21 @@ async function sendMessage() {
             files: filesData.length > 0 ? filesData : null
         };
 
+        // 🔧 FIX: Логирование отправки
+        console.log('📤 Sending group message:', {
+            groupId: selectedGroup,
+            text: text.substring(0, 50),
+            timestamp: groupMessage.timestamp
+        });
+
         if (sendToServer(groupMessage)) {
+            const msgTimestamp = Date.now();
+            
             addMessage({
                 sender: currentUser,
                 text: messageText,
                 time,
-                timestamp: Date.now(),
+                timestamp: msgTimestamp,
                 encrypted: encrypt,
                 hint,
                 deliveryStatus: 'pending',
@@ -3362,7 +3486,7 @@ async function sendMessage() {
                     sender: currentUser,
                     text: messageText,
                     time,
-                    timestamp: Date.now(),
+                    timestamp: msgTimestamp,
                     encrypted: encrypt,
                     hint: hint || null,
                     deliveryStatus: 'pending',
@@ -3372,6 +3496,15 @@ async function sendMessage() {
                     files: filesData
                 });
             }
+
+            // 🔧 FIX: Таймаут подтверждения доставки (5 секунд)
+            setTimeout(() => {
+                // Если сообщение всё ещё в статусе pending - показываем ошибку
+                const msgEl = document.querySelector(`.message[data-timestamp="${msgTimestamp}"]`);
+                if (msgEl && msgEl.querySelector('.checks.pending')) {
+                    cancelMessageDelivery(msgTimestamp);
+                }
+            }, 5000);
 
             DOM.messageBox.value = '';
             DOM.messageBox.style.height = 'auto';
@@ -3396,12 +3529,21 @@ async function sendMessage() {
         files: filesData.length > 0 ? filesData : null
     };
 
+    // 🔧 FIX: Логирование отправки
+    console.log('📤 Sending message:', {
+        to: selectedUser,
+        text: text.substring(0, 50),
+        timestamp: message.timestamp
+    });
+
     if (sendToServer(message)) {
+        const msgTimestamp = Date.now();
+        
         addMessage({
             sender: currentUser,
             text: messageText,
             time,
-            timestamp: Date.now(),
+            timestamp: msgTimestamp,
             encrypted: encrypt,
             hint,
             deliveryStatus: 'pending',
@@ -3414,7 +3556,7 @@ async function sendMessage() {
                 sender: currentUser,
                 text: messageText,
                 time,
-                timestamp: Date.now(),
+                timestamp: msgTimestamp,
                 encrypted: encrypt,
                 hint: encrypt ? generateHint(key) : null,
                 deliveryStatus: 'pending',
@@ -3425,6 +3567,15 @@ async function sendMessage() {
             // ✨ Добавляем чат в активные
             addChatToActive(selectedUser);
         }
+
+        // 🔧 FIX: Таймаут подтверждения доставки (5 секунд)
+        setTimeout(() => {
+            // Если сообщение всё ещё в статусе pending - показываем ошибку
+            const msgEl = document.querySelector(`.message[data-timestamp="${msgTimestamp}"]`);
+            if (msgEl && msgEl.querySelector('.checks.pending')) {
+                cancelMessageDelivery(msgTimestamp);
+            }
+        }, 5000);
 
         DOM.messageBox.value = '';
 
@@ -5215,7 +5366,7 @@ function renderBadgeVisibilityList() {
         const badgeInfo = getBadgeInfo(badgeId);
         if (!badgeInfo) return;
 
-        // Проверяем, есть ли этот значок у пользователя
+        // Проверяем, ест�� ли этот значок у пользователя
         const userBadge = userBadges.find(b => b.id === badgeId);
         const hasBadge = !!userBadge;
         const isVisible = hasBadge && userBadge.visible;

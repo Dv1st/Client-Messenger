@@ -845,7 +845,14 @@ function handleLogin(ws, { username, password }, clientIp) {
                 lastLogin: user.lastLogin,
                 message: 'Вход выполнен успешно'
             }));
+            
+            // 🔧 FIX: Рассылаем статус online всем пользователям
             broadcastUserList();
+            broadcast({
+                type: 'user_online',
+                username: username,
+                activeChat: user.activeChat || null
+            });
         }
     } catch (e) {
         console.error('❌ Login error:', e);
@@ -1036,7 +1043,7 @@ function handleLogout(ws, tokenId, isDisconnect = false) {
                 // 🔒 Сбрасываем activeChat при полном отключении
                 const oldActiveChat = user.activeChat;
                 user.activeChat = null;
-                
+
                 // 🔒 Рассылаем обновление статуса всем
                 broadcast({
                     type: 'user_status_update',
@@ -1044,7 +1051,13 @@ function handleLogout(ws, tokenId, isDisconnect = false) {
                     status: 'offline',
                     activeChat: null
                 });
-                
+
+                // 🔧 FIX: Рассылаем user_offline для обновления UI
+                broadcast({
+                    type: 'user_offline',
+                    username: session.username
+                });
+
                 // 🔒 Если пользователь был в чате с кем-то, уведомляем того пользователя
                 if (oldActiveChat) {
                     const otherUser = users.get(oldActiveChat);
@@ -1260,6 +1273,16 @@ function handleMessage(ws, sender, { text, privateTo, timestamp, encrypted, hint
                     if (device.ws?.readyState === WebSocket.OPEN) {
                         device.ws.send(JSON.stringify(message));
                     }
+                }
+                
+                // 🔧 FIX: Отправляем подтверждение отправителю
+                const senderUser = users.get(sender);
+                if (senderUser && senderUser.ws?.readyState === WebSocket.OPEN) {
+                    senderUser.ws.send(JSON.stringify({
+                        type: 'message_confirmed',
+                        timestamp: message.timestamp,
+                        confirmed: true
+                    }));
                 }
             }
 
@@ -1664,7 +1687,7 @@ function handle2FAVerify(ws, username, { token, useBackupCode }) {
 
     ws.send(JSON.stringify({
         type: '2fa_verified',
-        message: 'Код подтверждён',
+        message: 'Код под��верждён',
         remainingBackupCodes: user.twoFactorBackupCodes ? JSON.parse(user.twoFactorBackupCodes).length : 0
     }));
 }
