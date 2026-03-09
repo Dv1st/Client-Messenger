@@ -748,6 +748,22 @@ function handleServerMessage(data) {
                     updateUserVisibility(data.username, data.isVisible);
                 }
                 break;
+            // 🔴 НОВЫЕ: Обработка начала чата и данных профиля
+            case 'chat_started':
+                if (data.withUser) {
+                    handleChatStarted(data.withUser, data.timestamp, data.success);
+                }
+                break;
+            case 'profile_data':
+                if (data.profile) {
+                    handleProfileData(data.profile);
+                }
+                break;
+            case 'user_found':
+                if (data.user) {
+                    handleUserFound(data.user);
+                }
+                break;
             case 'receive_message':
                 if (data.sender && data.text && data.timestamp) {
                     handleMessageReceive(data);
@@ -956,6 +972,146 @@ function handleLoginSuccess(data) {
             });
         }
     }, 500);
+}
+
+// ============================================================================
+// 🔴 НОВЫЕ: Обработчики для начала чата и профиля
+// ============================================================================
+
+/**
+ * Обработка уведомления о начале чата
+ * @param {string} withUser - Имя пользователя с которым начался чат
+ * @param {number} timestamp - Временная метка
+ * @param {boolean} success - Успешно ли
+ */
+function handleChatStarted(withUser, timestamp, success = true) {
+    console.log(`💬 Chat started with: ${withUser}`, { success, timestamp });
+    
+    // Добавляем пользователя в активные чаты если это успешно
+    if (success && withUser) {
+        // Проверяем есть ли уже чат
+        if (!window.hasChatWithUser(withUser)) {
+            // Создаём пустой чат в localStorage если его нет
+            const key = `chat_messages_${currentUser}_${withUser}`;
+            if (!localStorage.getItem(key)) {
+                localStorage.setItem(key, JSON.stringify([]));
+            }
+        }
+        
+        // Добавляем в активные чаты
+        addChatToActive(withUser);
+        
+        // Обновляем sidebar
+        if (window.sidebarComponent) {
+            window.sidebarComponent.renderChatsList();
+        }
+        
+        // Если чат ещё не открыт, можно предложить открыть его
+        if (selectedUser !== withUser) {
+            console.log(`💡 Предложение открыть чат с ${withUser}`);
+            // Опционально: можно показать уведомление
+            showBrowserNotification({
+                sender: withUser,
+                text: 'Новый чат начался!',
+                encrypted: false
+            });
+        }
+    }
+}
+
+/**
+ * Обработка данных профиля пользователя
+ * @param {Object} profile - Данные профиля
+ */
+function handleProfileData(profile) {
+    console.log('👤 Profile data received:', profile);
+    
+    // Сохраняем данные профиля в localStorage для кэширования
+    try {
+        const profileKey = `profile_${profile.username}`;
+        const cachedProfile = {
+            username: profile.username,
+            userId: profile.userId,
+            statusMessage: profile.customStatus || 'Нет статуса',
+            avatarUrl: profile.avatar || '',
+            badges: profile.badges || [],
+            createdAt: profile.createdAt,
+            lastLogin: profile.lastLogin,
+            isVisibleInDirectory: profile.isVisibleInDirectory,
+            allowGroupInvite: profile.allowGroupInvite
+        };
+        localStorage.setItem(profileKey, JSON.stringify(cachedProfile));
+    } catch (e) {
+        console.error('❌ Failed to cache profile:', e);
+    }
+    
+    // Если профиль открыт, обновляем отображение
+    if (DOM.profileModal && !DOM.profileModal.classList.contains('hidden')) {
+        // Обновляем отображение профиля
+        renderProfileData(profile);
+    }
+}
+
+/**
+ * Обработка поиска пользователя по ID
+ * @param {Object} user - Данные пользователя
+ */
+function handleUserFound(user) {
+    console.log('🔍 User found by ID:', user);
+    // Можно использовать для отображения информации о пользователе
+}
+
+/**
+ * Рендеринг данных профиля в модальном окне
+ * @param {Object} profile - Данные профиля
+ */
+function renderProfileData(profile) {
+    if (!DOM.profileUserName) return;
+    
+    DOM.profileUserName.textContent = profile.username;
+    
+    if (DOM.profileUserStatus) {
+        DOM.profileUserStatus.textContent = profile.customStatus || 'Нет статуса';
+    }
+    
+    if (DOM.profileAvatar && profile.avatar) {
+        DOM.profileAvatar.innerHTML = `<img src="${escapeHtml(profile.avatar)}" alt="${escapeHtml(profile.username)}">`;
+    }
+    
+    // Обновляем бейджики если они есть
+    if (profile.badges && profile.badges.length > 0) {
+        renderBadges(profile.badges, false);
+    }
+}
+
+/**
+ * Начать чат с пользователем
+ * @param {string} username - Имя пользователя
+ */
+function startChatWithUser(username) {
+    if (!username || username === currentUser) {
+        console.warn('⚠️ Cannot start chat with self or invalid username');
+        return;
+    }
+    
+    console.log(`💬 Starting chat with: ${username}`);
+    
+    // Отправляем запрос серверу
+    sendToServer({
+        type: 'start_chat',
+        targetUsername: username
+    });
+    
+    // Добавляем в активные чаты локально (до подтверждения сервера)
+    addChatToActive(username);
+    
+    // Обновляем sidebar
+    if (window.sidebarComponent) {
+        window.sidebarComponent.renderChatsList();
+    }
+    
+    // Открываем чат
+    selectUser(username);
 }
 
 // ============================================================================
@@ -1417,17 +1573,8 @@ function initSidebar() {
             // 🔹 Логика начала чата с новым пользователем
             const username = user.username || user.id;
             if (username) {
-                // Проверяем, есть ли уже чат с этим пользователем
-                if (window.hasChatWithUser(username)) {
-                    // Чат уже существует - просто открываем его
-                    console.log('✅ Чат уже существует, открываем:', username);
-                } else {
-                    // Чата нет - создаём новый
-                    console.log('✅ Создаём новый чат:', username);
-                    addChatToActive(username);
-                }
-                // Открываем чат с пользователем
-                selectUser(username);
+                // 🔴 НОВОЕ: Используем функцию startChatWithUser которая отправляет запрос серверу
+                startChatWithUser(username);
             }
         },
 
@@ -1653,7 +1800,7 @@ function addUnreadMessage() {
 }
 
 // ============================================================================
-// 🔹 Пользователи
+// 🔹 ��ользователи
 // ============================================================================
 function updateUsersList(serverUsers) {
     try {

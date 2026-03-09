@@ -41,7 +41,8 @@ async function initializeDatabase() {
     // Таблица пользователей
     await client.query(`
       CREATE TABLE IF NOT EXISTS users (
-        username TEXT PRIMARY KEY,
+        user_id SERIAL PRIMARY KEY,
+        username TEXT UNIQUE NOT NULL,
         password_hash TEXT NOT NULL,
         salt TEXT NOT NULL,
         created_at BIGINT,
@@ -50,14 +51,27 @@ async function initializeDatabase() {
         allow_group_invite BOOLEAN DEFAULT FALSE,
         two_factor_secret TEXT,
         two_factor_enabled BOOLEAN DEFAULT FALSE,
-        two_factor_backup_codes TEXT
+        two_factor_backup_codes TEXT,
+        user_badges JSONB DEFAULT '[]'::jsonb,
+        custom_status TEXT,
+        avatar TEXT
       )
     `);
 
-    // 🔧 Добавляем недостающие колонки (миграции)
+    // 🔧 Добавляем недостающие колонки (миграции) для существующих таблиц
     await client.query(`
       ALTER TABLE users
       ADD COLUMN IF NOT EXISTS user_badges JSONB DEFAULT '[]'::jsonb
+    `);
+    
+    await client.query(`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS custom_status TEXT
+    `);
+    
+    await client.query(`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS avatar TEXT
     `);
 
     // Таблица групп
@@ -397,6 +411,237 @@ async function testConnection() {
   }
 }
 
+// ============================================================================
+// 🏅 Функции для работы с бейджиками
+// ============================================================================
+
+/**
+ * Добавить бейджик пользователю (админ-функция)
+ * @param {number} userId - ID пользователя
+ * @param {string} badgeId - ID бейджика
+ * @param {boolean} visible - Видимость бейджика
+ */
+async function addUserBadge(userId, badgeId, visible = true) {
+  try {
+    // Получаем текущие бейджики
+    const userResult = await pool.query(
+      'SELECT user_badges FROM users WHERE user_id = $1',
+      [userId]
+    );
+    
+    if (userResult.rows.length === 0) {
+      throw new Error('Пользователь не найден');
+    }
+    
+    const currentBadges = userResult.rows[0].user_badges || [];
+    
+    // Проверяем, есть ли уже такой бейджик
+    const existingIndex = currentBadges.findIndex(b => b.id === badgeId);
+    
+    if (existingIndex >= 0) {
+      // Обновляем видимость существующего
+      currentBadges[existingIndex].visible = visible;
+    } else {
+      // Добавляем новый бейджик
+      currentBadges.push({ id: badgeId, visible });
+    }
+    
+    await pool.query(
+      'UPDATE users SET user_badges = $1 WHERE user_id = $2',
+      [JSON.stringify(currentBadges), userId]
+    );
+    
+    console.log(`✅ Badge ${badgeId} added to user ${userId}`);
+    return currentBadges;
+  } catch (err) {
+    console.error('❌ addUserBadge error:', err);
+    throw err;
+  }
+}
+
+/**
+ * Удалить бейджик у пользователя (админ-функция)
+ * @param {number} userId - ID пользователя
+ * @param {string} badgeId - ID бейджика
+ */
+async function removeUserBadge(userId, badgeId) {
+  try {
+    const userResult = await pool.query(
+      'SELECT user_badges FROM users WHERE user_id = $1',
+      [userId]
+    );
+    
+    if (userResult.rows.length === 0) {
+      throw new Error('Пользователь не найден');
+    }
+    
+    const currentBadges = userResult.rows[0].user_badges || [];
+    const newBadges = currentBadges.filter(b => b.id !== badgeId);
+    
+    await pool.query(
+      'UPDATE users SET user_badges = $1 WHERE user_id = $2',
+      [JSON.stringify(newBadges), userId]
+    );
+    
+    console.log(`✅ Badge ${badgeId} removed from user ${userId}`);
+    return newBadges;
+  } catch (err) {
+    console.error('❌ removeUserBadge error:', err);
+    throw err;
+  }
+}
+
+/**
+ * Получить бейджики пользователя
+ * @param {number} userId - ID пользователя
+ * @returns {Promise<Array>}
+ */
+async function getUserBadges(userId) {
+  try {
+    const result = await pool.query(
+      'SELECT user_badges FROM users WHERE user_id = $1',
+      [userId]
+    );
+    
+    if (result.rows.length === 0) {
+      return [];
+    }
+    
+    return result.rows[0].user_badges || [];
+  } catch (err) {
+    console.error('❌ getUserBadges error:', err);
+    return [];
+  }
+}
+
+// ============================================================================
+// 👤 Функции для работы с профилем пользователя
+// ============================================================================
+
+/**
+ * Получить полный профиль пользователя по username
+ * @param {string} username - Имя пользователя
+ * @returns {Promise<Object|null>}
+ */
+async function getUserProfile(username) {
+  try {
+    const result = await pool.query(
+      'SELECT * FROM users WHERE username = $1',
+      [username]
+    );
+    
+    if (result.rows.length === 0) {
+      return null;
+    }
+    
+    const row = result.rows[0];
+    return {
+      user_id: row.user_id,
+      username: row.username,
+      user_badges: row.user_badges || [],
+      created_at: row.created_at,
+      last_login: row.last_login,
+      custom_status: row.custom_status,
+      avatar: row.avatar,
+      is_visible_in_directory: row.is_visible_in_directory,
+      allow_group_invite: row.allow_group_invite
+    };
+  } catch (err) {
+    console.error('❌ getUserProfile error:', err);
+    return null;
+  }
+}
+
+/**
+ * Получить полный профиль пользователя по user_id
+ * @param {number} userId - ID пользователя
+ * @returns {Promise<Object|null>}
+ */
+async function getUserProfileByUserId(userId) {
+  try {
+    const result = await pool.query(
+      'SELECT * FROM users WHERE user_id = $1',
+      [userId]
+    );
+    
+    if (result.rows.length === 0) {
+      return null;
+    }
+    
+    const row = result.rows[0];
+    return {
+      user_id: row.user_id,
+      username: row.username,
+      user_badges: row.user_badges || [],
+      created_at: row.created_at,
+      last_login: row.last_login,
+      custom_status: row.custom_status,
+      avatar: row.avatar,
+      is_visible_in_directory: row.is_visible_in_directory,
+      allow_group_invite: row.allow_group_invite
+    };
+  } catch (err) {
+    console.error('❌ getUserProfileByUserId error:', err);
+    return null;
+  }
+}
+
+/**
+ * Обновить профиль пользователя
+ * @param {string} username - Имя пользователя
+ * @param {Object} updates - Объект с обновлениями
+ */
+async function updateUserProfile(username, updates) {
+  try {
+    const allowedFields = ['custom_status', 'avatar', 'is_visible_in_directory', 'allow_group_invite', 'user_badges'];
+    const fields = [];
+    const values = [];
+    let paramIndex = 1;
+    
+    for (const [key, value] of Object.entries(updates)) {
+      if (allowedFields.includes(key)) {
+        if (key === 'user_badges') {
+          fields.push(`${key} = $${paramIndex}::jsonb`);
+        } else {
+          fields.push(`${key} = $${paramIndex}`);
+        }
+        values.push(value);
+        paramIndex++;
+      }
+    }
+    
+    if (fields.length === 0) {
+      return null;
+    }
+    
+    values.push(username);
+    const result = await pool.query(
+      `UPDATE users SET ${fields.join(', ')} WHERE username = $${paramIndex} RETURNING *`,
+      values
+    );
+    
+    if (result.rows.length === 0) {
+      return null;
+    }
+    
+    const row = result.rows[0];
+    return {
+      user_id: row.user_id,
+      username: row.username,
+      user_badges: row.user_badges || [],
+      created_at: row.created_at,
+      last_login: row.last_login,
+      custom_status: row.custom_status,
+      avatar: row.avatar,
+      is_visible_in_directory: row.is_visible_in_directory,
+      allow_group_invite: row.allow_group_invite
+    };
+  } catch (err) {
+    console.error('❌ updateUserProfile error:', err);
+    return null;
+  }
+}
+
 module.exports = {
   pool,
   initializeDatabase,
@@ -410,5 +655,13 @@ module.exports = {
   saveMessage,
   loadMessagesBetweenUsers,
   loadGroupMessages,
-  testConnection
+  testConnection,
+  // 🏅 Бейджики
+  addUserBadge,
+  removeUserBadge,
+  getUserBadges,
+  // 👤 Профиль
+  getUserProfile,
+  getUserProfileByUserId,
+  updateUserProfile
 };

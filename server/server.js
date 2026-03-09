@@ -137,8 +137,9 @@ async function loadUsersFromDatabase() {
             console.log(`📖 loadUser: ${row.username}`);
             console.log(`   password_hash from DB: ${row.password_hash ? row.password_hash.substring(0, 16) + '...' : 'MISSING'}`);
             console.log(`   salt from DB: ${row.salt ? row.salt.substring(0, 16) + '...' : 'MISSING'}`);
-            
+
             users.set(row.username, {
+                userId: row.user_id,  // 🔴 НОВОЕ: загружаем user_id
                 passwordHash: row.password_hash,
                 salt: row.salt,
                 createdAt: row.created_at,
@@ -148,7 +149,9 @@ async function loadUsersFromDatabase() {
                 twoFactorSecret: row.two_factor_secret || null,
                 twoFactorEnabled: row.two_factor_enabled === true,
                 twoFactorBackupCodes: row.two_factor_backup_codes || null,
-                userBadges: row.user_badges || [],
+                userBadges: row.user_badges || [],  // 🔴 Пустой массив по умолчанию
+                customStatus: row.custom_status || null,
+                avatar: row.avatar || null,
                 status: 'offline',
                 activeChat: null,
                 devices: new Map()
@@ -688,7 +691,9 @@ async function handleRegister(ws, { username, password }, clientIp) {
             twoFactorSecret: null,
             twoFactorEnabled: false,
             twoFactorBackupCodes: null,
-            userBadges: [],
+            userBadges: [],  // 🔴 ПУСТОЙ массив - бейджики только через БД
+            customStatus: null,
+            avatar: null,
             status: 'offline',
             activeChat: null,
             devices: new Map()
@@ -731,12 +736,17 @@ async function handleRegister(ws, { username, password }, clientIp) {
 
         console.log(`✅ Auto-login after registration: ${username} (${deviceId})`);
 
+        // 🔴 Получаем user_id из загруженных данных пользователя
+        const userId = user.userId;
+
         ws.send(JSON.stringify({
             type: 'register_success',
             username,
+            userId,  // 🔴 Возвращаем user_id
             deviceId,
             token: tokenId,
             isVisibleInDirectory: user.isVisibleInDirectory,
+            userBadges: user.userBadges || [],  // 🔴 Возвращаем пустой массив
             message: 'Регистрация успешна! Выполнен вход в аккаунт.'
         }));
 
@@ -825,11 +835,16 @@ function handleLogin(ws, { username, password }, clientIp) {
             ws.send(JSON.stringify({
                 type: 'login_success',
                 username,
+                userId: user.userId,  // 🔴 Возвращаем user_id из БД
                 deviceId,
                 token: tokenId,
                 isVisibleInDirectory: user.isVisibleInDirectory,
                 allowGroupInvite: user.allowGroupInvite,
-                userBadges: user.userBadges || [],
+                userBadges: user.userBadges || [],  // 🔴 Загружаем из БД
+                customStatus: user.customStatus || null,
+                avatar: user.avatar || null,
+                createdAt: user.createdAt,
+                lastLogin: user.lastLogin,
                 message: 'Вход выполнен успешно'
             }));
             broadcastUserList();
@@ -906,11 +921,14 @@ function handleAutoLogin(ws, { username, token, deviceId }, clientIp) {
         ws.send(JSON.stringify({
             type: 'login_success',
             username,
+            userId: user.userId,  // 🔴 Возвращаем user_id
             deviceId: newDeviceId,
             token: tokenId,
             isVisibleInDirectory: user.isVisibleInDirectory,
             allowGroupInvite: user.allowGroupInvite,
-            userBadges: user.userBadges || [],
+            userBadges: user.userBadges || [],  // 🔴 Загружаем из БД
+            customStatus: user.customStatus || null,
+            avatar: user.avatar || null,
             message: 'Автоматический вход выполнен успешно'
         }));
 
@@ -991,11 +1009,14 @@ function handleLogin2FA(ws, { username, token, deviceId, twoFactorToken, useBack
     ws.send(JSON.stringify({
         type: 'login_success',
         username,
+        userId: user.userId,  // 🔴 Возвращаем user_id
         deviceId: session.deviceId,
         token,
         isVisibleInDirectory: user.isVisibleInDirectory,
         allowGroupInvite: user.allowGroupInvite,
-        userBadges: user.userBadges || [],
+        userBadges: user.userBadges || [],  // 🔴 Загружаем из БД
+        customStatus: user.customStatus || null,
+        avatar: user.avatar || null,
         twoFactorVerified: true,
         remainingBackupCodes: user.twoFactorBackupCodes ? JSON.parse(user.twoFactorBackupCodes).length : 0,
         message: 'Вход выполнен успешно'
@@ -1688,6 +1709,155 @@ function handleChatOpen(ws, username, { chatWith }) {
 }
 
 // ============================================================================
+// 🔴 НОВЫЕ: Обработка начала чата и получения профиля
+// ============================================================================
+
+/**
+ * Начало чата между двумя пользователями
+ * @param {WebSocket} ws - WebSocket отправителя
+ * @param {string} initiatorUsername - Имя инициатора
+ * @param {Object} data - Данные { targetUsername }
+ */
+function handleStartChat(ws, initiatorUsername, { targetUsername }) {
+    // Проверяем что пользователь не пытается начать чат сам с собой
+    if (targetUsername === initiatorUsername) {
+        return ws.send(JSON.stringify({
+            type: 'error',
+            message: 'Нельзя начать чат сам с собой'
+        }));
+    }
+
+    const targetUser = users.get(targetUsername);
+    
+    // Проверяем существование получателя
+    if (!targetUser) {
+        return ws.send(JSON.stringify({
+            type: 'error',
+            message: 'Пользователь не найден'
+        }));
+    }
+
+    console.log(`💬 Starting chat between ${initiatorUsername} and ${targetUsername}`);
+
+    // Отправляем уведомление ПОЛУЧАТЕЛЮ что начался чат
+    for (const [_, device] of targetUser.devices.entries()) {
+        if (device.ws?.readyState === WebSocket.OPEN) {
+            device.ws.send(JSON.stringify({
+                type: 'chat_started',
+                withUser: initiatorUsername,
+                timestamp: Date.now()
+            }));
+        }
+    }
+
+    // Подтверждение инициатору
+    ws.send(JSON.stringify({
+        type: 'chat_started',
+        withUser: targetUsername,
+        timestamp: Date.now(),
+        success: true
+    }));
+
+    console.log(`✅ Chat started: ${initiatorUsername} <-> ${targetUsername}`);
+}
+
+/**
+ * Получение профиля пользователя
+ * @param {WebSocket} ws - WebSocket запросившего
+ * @param {string} requestorUsername - Имя запросившего
+ * @param {Object} data - Данные { targetUsername, targetUserId }
+ */
+async function handleGetProfile(ws, requestorUsername, { targetUsername, targetUserId }) {
+    try {
+        let profile = null;
+        
+        if (targetUserId) {
+            // Поиск по user_id
+            profile = await db.getUserProfileByUserId(targetUserId);
+        } else if (targetUsername) {
+            // Поиск по username
+            profile = await db.getUserProfile(targetUsername);
+        }
+        
+        if (!profile) {
+            return ws.send(JSON.stringify({
+                type: 'error',
+                message: 'Пользователь не найден'
+            }));
+        }
+        
+        // Возвращаем только публичную информацию
+        ws.send(JSON.stringify({
+            type: 'profile_data',
+            profile: {
+                userId: profile.user_id,
+                username: profile.username,
+                badges: profile.user_badges || [],
+                createdAt: profile.created_at,
+                lastLogin: profile.last_login,
+                customStatus: profile.custom_status || null,
+                avatar: profile.avatar || null,
+                isVisibleInDirectory: profile.is_visible_in_directory,
+                allowGroupInvite: profile.allow_group_invite
+            }
+        }));
+        
+        console.log(`👤 Profile requested: ${requestorUsername} -> ${profile.username}`);
+    } catch (err) {
+        console.error('❌ handleGetProfile error:', err);
+        ws.send(JSON.stringify({
+            type: 'error',
+            message: 'Ошибка загрузки профиля'
+        }));
+    }
+}
+
+/**
+ * Получение пользователя по ID
+ * @param {WebSocket} ws - WebSocket запросившего
+ * @param {string} requestorUsername - Имя запросившего
+ * @param {Object} data - Данные { userId }
+ */
+async function handleGetUserById(ws, requestorUsername, { userId }) {
+    try {
+        if (!userId || typeof userId !== 'number') {
+            return ws.send(JSON.stringify({
+                type: 'error',
+                message: 'Неверный user_id'
+            }));
+        }
+        
+        const profile = await db.getUserProfileByUserId(userId);
+        
+        if (!profile) {
+            return ws.send(JSON.stringify({
+                type: 'error',
+                message: 'Пользователь не найден'
+            }));
+        }
+        
+        // Возвращаем только публичную информацию
+        ws.send(JSON.stringify({
+            type: 'user_found',
+            user: {
+                userId: profile.user_id,
+                username: profile.username,
+                badges: profile.user_badges || [],
+                isVisibleInDirectory: profile.is_visible_in_directory
+            }
+        }));
+        
+        console.log(`🔍 User lookup by ID: ${requestorUsername} -> ${profile.username} (${userId})`);
+    } catch (err) {
+        console.error('❌ handleGetUserById error:', err);
+        ws.send(JSON.stringify({
+            type: 'error',
+            message: 'Ошибка поиска пользователя'
+        }));
+    }
+}
+
+// ============================================================================
 // 👥 Групповые чаты
 // ============================================================================
 
@@ -1701,7 +1871,7 @@ function handleCreateGroup(ws, username, { name, members }) {
     }
 
     if (!name || typeof name !== 'string' || name.trim().length < 2 || name.length > 50) {
-        return ws.send(JSON.stringify({ type: 'create_group_error', message: 'Название группы должно быть от 2 до 50 символов' }));
+        return ws.send(JSON.stringify({ type: 'create_group_error', message: 'Название группы должно быть от 2 до 50 сим��олов' }));
     }
 
     if (!Array.isArray(members) || members.length === 0) {
@@ -2204,6 +2374,16 @@ wss.on('connection', (ws, req) => {
             // ✨ ИЗМЕНЕНО: Обработка открытия чата
             case 'chat_open':
                 if (session) handleChatOpen(ws, username, data);
+                break;
+            // 🔴 НОВЫЕ: Обработка начала чата и получения профиля
+            case 'start_chat':
+                if (session) handleStartChat(ws, username, data);
+                break;
+            case 'get_profile':
+                if (session) handleGetProfile(ws, username, data);
+                break;
+            case 'get_user_by_id':
+                if (session) handleGetUserById(ws, username, data);
                 break;
             case 'ping':
                 ws.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
