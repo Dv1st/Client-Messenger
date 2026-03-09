@@ -1364,7 +1364,25 @@ async function handleGetHistory(ws, username, { chatName, groupId, limit = 100 }
 }
 
 function handleDeleteChat(ws, username, { chatName }) {
-    ws.send(JSON.stringify({ type: 'chat_deleted', chatName, message: 'Чат удалён локально' }));
+    // Отправляем подтверждение удалившему пользователю
+    ws.send(JSON.stringify({ type: 'chat_deleted', chatName, message: 'Чат удалён' }));
+    
+    // 🔔 Уведомляем собеседника об удалении чата
+    const targetUser = users.get(chatName);
+    if (targetUser) {
+        for (const [_, device] of targetUser.devices.entries()) {
+            if (device.ws?.readyState === WebSocket.OPEN) {
+                device.ws.send(JSON.stringify({
+                    type: 'chat_deleted',
+                    chatName: username,
+                    deletedBy: username,
+                    message: 'Чат удалён собеседником'
+                }));
+            }
+        }
+    }
+    
+    console.log(`🗑️ Chat deleted: ${username} removed chat with ${chatName}`);
 }
 
 // ✨ ИЗМЕНЕНО: Обработка подтверждения прочтения сообщений

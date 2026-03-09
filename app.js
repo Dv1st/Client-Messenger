@@ -1338,10 +1338,57 @@ function loadMessageHistory(messages, chatName, groupId) {
 
 /**
  * Удаление чата
+ * @param {string} chatName - Имя пользователя, чат с которым удалён
  */
 function handleChatDeleted(chatName) {
-    // Заглушка
+    if (!chatName) {
+        console.warn('⚠️ handleChatDeleted: invalid chatName');
+        return;
+    }
+    
     console.log(`🗑️ Chat deleted: ${chatName}`);
+    
+    // 🔹 Удаляем чат из списка у текущего пользователя
+    removeChatFromList(chatName);
+    
+    // 🔹 Если чат с текущим собеседником - закрываем его
+    if (selectedUser === chatName) {
+        showGeneralChat();
+    }
+    
+    // 🔹 Сбрасываем activeChat у пользователя
+    const user = users.find(u => u.name === chatName);
+    if (user) {
+        user.activeChat = null;
+        saveUsersToStorage();
+        renderAll();
+    }
+}
+
+/**
+ * Удалить чат из списка
+ * @param {string} username - Имя пользователя
+ */
+function removeChatFromList(username) {
+    if (!window.sidebarComponent) {
+        console.warn('⚠️ removeChatFromList: sidebarComponent not initialized');
+        return;
+    }
+    
+    // 🔹 Удаляем из активных чатов в localStorage
+    const activeChatsKey = `active_chats_${currentUser}`;
+    const activeChats = JSON.parse(localStorage.getItem(activeChatsKey) || '[]');
+    const updatedChats = activeChats.filter(chat => chat.userId !== username);
+    localStorage.setItem(activeChatsKey, JSON.stringify(updatedChats));
+    
+    // 🔹 Удаляем сообщения чата из localStorage
+    const messagesKey = `chat_messages_${currentUser}_${username}`;
+    localStorage.removeItem(messagesKey);
+    
+    // 🔹 Обновляем sidebar
+    window.sidebarComponent.renderChatsList();
+    
+    console.log(`✅ Chat with ${username} removed from list`);
 }
 
 /**
@@ -2868,23 +2915,24 @@ function togglePin(username) {
  */
 function deleteChat(username, itemElement) {
     if (confirm('Удалить чат с "' + username + '"?')) {
-        itemElement.style.opacity = '0';
-        itemElement.style.pointerEvents = 'none';
-        setTimeout(() => itemElement.remove(), 200);
-
-        if (selectedUser === username) showGeneralChat();
+        // 🔹 Отправляем запрос на сервер (сервер уведомит собеседника)
+        sendToServer({ type: 'delete_chat', chatName: username });
         
-        // ✨ При удалении чата сбрасываем activeChat у пользователя
-        // Пользователь вернётся в общий список (если isVisibleInDirectory = true)
-        // Сообщения сохраняем, чтобы чат можно было восстановить
+        // 🔹 Локально удаляем чат из списка
+        removeChatFromList(username);
+        
+        // 🔹 Если чат с текущим собеседником - закрываем его
+        if (selectedUser === username) {
+            showGeneralChat();
+        }
+        
+        // 🔹 Сбрасываем activeChat у пользователя
         const user = users.find(u => u.name === username);
         if (user) {
             user.activeChat = null;
             saveUsersToStorage();
             renderAll();
         }
-        
-        sendToServer({ type: 'delete_chat', chatName: username });
     }
 }
 
@@ -5448,16 +5496,12 @@ function deleteCurrentChat() {
 
     try {
         if (selectedUser) {
-            // Удаление личного чата
-            const messagesKey = `messages_${currentUser}_${selectedUser}`;
-            localStorage.removeItem(messagesKey);
+            // 🔹 Отправляем запрос на сервер (сервер уведомит собеседника)
+            sendToServer({ type: 'delete_chat', chatName: selectedUser });
             
-            // Удаляем из активных чатов
-            const activeChatsKey = `active_chats_${currentUser}`;
-            const activeChats = JSON.parse(localStorage.getItem(activeChatsKey) || '[]');
-            const updatedChats = activeChats.filter(chat => chat.userId !== selectedUser);
-            localStorage.setItem(activeChatsKey, JSON.stringify(updatedChats));
-
+            // 🔹 Локально удаляем чат из списка
+            removeChatFromList(selectedUser);
+            
             console.log(`✅ Личный чат с ${selectedUser} удалён`);
         } else if (selectedGroup) {
             // Удаление группы (только если пользователь создатель)
@@ -5465,10 +5509,10 @@ function deleteCurrentChat() {
             if (group && group.creator === currentUser) {
                 const messagesKey = `group_messages_${selectedGroup}`;
                 localStorage.removeItem(messagesKey);
-                
+
                 // Удаляем группу из списка
                 groups = groups.filter(g => g.id !== selectedGroup);
-                
+
                 // Отправляем уведомление участникам
                 sendToServer({
                     type: 'delete_group',
@@ -5486,7 +5530,7 @@ function deleteCurrentChat() {
         // Очищаем текущий чат
         selectedUser = null;
         selectedGroup = null;
-        
+
         // Обновляем интерфейс
         if (DOM.messagesList) {
             DOM.messagesList.innerHTML = '';
@@ -5507,7 +5551,7 @@ function deleteCurrentChat() {
 
         // Обновляем sidebar
         if (window.sidebarComponent) {
-            window.sidebarComponent.updateChats([]);
+            window.sidebarComponent.renderChatsList();
         }
 
         closeChatMenu();
@@ -6842,7 +6886,7 @@ function initTwoFactor() {
     const disableTwoFactorCodeInput = document.getElementById('disableTwoFactorCodeInput');
     const useBackupCodeCheckbox = document.getElementById('useBackupCodeCheckbox');
 
-    // Открытие модального окна
+    // Открытие м��дального окна
     if (twoFactorBtn) {
         twoFactorBtn.addEventListener('click', () => {
             if (twoFactorState.enabled) {
