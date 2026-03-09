@@ -157,17 +157,11 @@ class SidebarComponent {
         // Делегирование событий для чатов
         if (this.dom.chatsList) {
             this.dom.chatsList.addEventListener('click', (e) => this.handleChatClick(e));
-            console.log('✅ chatsList event listener bound');
-        } else {
-            console.warn('⚠️ chatsList element not found');
         }
 
         // Делегирование событий для результатов поиска
         if (this.dom.searchResultsList) {
             this.dom.searchResultsList.addEventListener('click', (e) => this.handleSearchResultClick(e));
-            console.log('✅ searchResultsList event listener bound');
-        } else {
-            console.warn('⚠️ searchResultsList element not found');
         }
     }
 
@@ -400,9 +394,6 @@ class SidebarComponent {
         let users = this.state.publicUsers;
         if (typeof window.getPublicUsersData === 'function') {
             users = window.getPublicUsersData();
-            console.log('🔵 handleSearchFocus: loaded', users.length, 'users from getPublicUsersData');
-        } else {
-            console.warn('⚠️ handleSearchFocus: window.getPublicUsersData not defined');
         }
 
         // Рендерим всех пользователей для поиска
@@ -506,38 +497,27 @@ class SidebarComponent {
         const resultItem = e.target.closest('.search-result-item');
         const actionBtn = e.target.closest('.search-result-action-btn');
 
-        console.log('🔵 handleSearchResultClick event:', {
-            target: e.target?.className,
-            closestItem: resultItem?.className,
-            isActionBtn: !!actionBtn
-        });
+        if (actionBtn) {
+            // Кнопка "Начать чат"
+            const userId = resultItem?.dataset.userId;
+            const username = resultItem?.dataset.username;
 
-        if (!resultItem) {
-            console.warn('⚠️ handleSearchResultClick: no resultItem');
-            return;
+            if (userId) {
+                // 🔹 Скрываем поиск перед открытием чата
+                this.hideSearch();
+                this.callbacks.onUserStartChat?.({ id: userId, username });
+            }
+        } else if (resultItem) {
+            // Клик по самому элементу
+            const userId = resultItem.dataset.userId;
+            const username = resultItem.dataset.username;
+
+            if (userId) {
+                // 🔹 Скрываем поиск перед открытием чата
+                this.hideSearch();
+                this.callbacks.onUserStartChat?.({ id: userId, username });
+            }
         }
-
-        const userId = resultItem.dataset.userId;
-        const username = resultItem.dataset.username;
-
-        console.log('🔵 handleSearchResultClick:', {
-            userId,
-            username,
-            isActionBtn: !!actionBtn,
-            allDatasets: resultItem.dataset
-        });
-
-        if (!username) {
-            console.warn('⚠️ handleSearchResultClick: no username');
-            return;
-        }
-
-        // 🔹 Скрываем поиск перед открытием чата
-        this.hideSearch();
-
-        // Вызываем callback - начинаем чат с пользователем
-        console.log('✅ Calling onUserStartChat with:', { id: userId, username });
-        this.callbacks.onUserStartChat?.({ id: userId, username });
     }
 
     /**

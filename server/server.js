@@ -44,20 +44,22 @@ const EMOJI_BADGES_CATALOG = {
     'verified':      { icon: '🎯', name: 'Верифицирован', description: 'Подтверждённый пользователь' },
     'designer':      { icon: '🎨', name: 'Дизайнер', description: 'Дизайнер' },
     'developer':     { icon: '💻', name: 'Разработчик', description: 'Разработчик' },
-    'music':         { icon: '🎵', name: 'Меломан', description: 'Любитель музыки' },
-    'fire':          { icon: '🔥', name: 'ПИРОМАНТ', description: 'Хочет видеть мир в ОГНЕ!!!' },
-    'crown':         { icon: '👑', name: 'Queneeee', description: 'Quene-e-e-e!' },
-    'heart':         { icon: '❤️', name: 'Любимчик', description: 'Даже страшно представить как его получить...' },
+    'music':         { icon: '🎵', name: 'Музыкальный', description: 'Любитель музыки' },
+    'fire':          { icon: '🔥', name: 'Огонь', description: 'ПИРОМАНТ!!!' },
+    'diamond':       { icon: '💠', name: 'Кристалл', description: 'Алмаз, как дела?' },
+    'crown':         { icon: '👑', name: 'Корона', description: 'Queneeee' },
+    'heart':         { icon: '❤️', name: 'Сердце', description: 'Любимчик' },
     'star':          { icon: '🌟', name: 'Звезда', description: 'Путеводная звезда' },
     'trophy':        { icon: '🏅', name: 'Трофей', description: 'Победитель' },
-    'medal':         { icon: '🎖️', name: 'Медалька(шоколадная)', description: 'Что-то сделал' },
-    'stop':         { icon: '✋', name: 'СТПОЭ', description: 'СТОП! Мне не приятно' },
+    'medal':         { icon: '🎖️', name: 'Медаль', description: 'Что-то сделал' },
+    'stop':         { icon: '✋', name: 'Бейдж', description: 'СТОП! Мне не приятно' },
     'sparkles':      { icon: '✨', name: 'Сияние', description: 'Спар-р-р-рки?!' },
-    'alien':         { icon: '👽', name: 'Консультант ДНС', description: 'Ходят слухи, что это самый оригинальный кослпей...' },
-    'robot':         { icon: '🤖', name: 'T9', description: 'Виновник твоих неправильна сообщения' },
-    'ghost':         { icon: '👻', name: 'Невидимка', description: 'Говорят что его не видно при свете дня...' },
+    'alien':         { icon: '👽', name: 'Пришелец', description: 'Консультант ДНС' },
+    'robot':         { icon: '🤖', name: 'Робот', description: 'Автоматизатор' },
+    'ghost':         { icon: '👻', name: 'Призрак', description: 'Невидимка' },
     'panda':         { icon: '🐼', name: 'Панда', description: 'Няфка  👉 👈' },
-    'tiger':         { icon: '🐯', name: 'ТЫГРЫЩЕ', description: 'Что за лев этот тигр' },
+    'tiger':         { icon: '🐯', name: 'Тигр', description: 'ТЫГРЫЩЕ' },
+    'sun':           { icon: '☀️', name: 'Солнце', description: 'Ослепительно' },
     'moon':          { icon: '🌙', name: 'Луна', description: 'Ночной житель' }
 };
 
@@ -133,13 +135,10 @@ async function loadUsersFromDatabase() {
         rows.forEach(row => {
             // 🔐 Отладка: проверяем загрузку salt и passwordHash
             console.log(`📖 loadUser: ${row.username}`);
-            console.log(`   user_id: ${row.user_id}`);
             console.log(`   password_hash from DB: ${row.password_hash ? row.password_hash.substring(0, 16) + '...' : 'MISSING'}`);
             console.log(`   salt from DB: ${row.salt ? row.salt.substring(0, 16) + '...' : 'MISSING'}`);
-            console.log(`   user_badges from DB: ${JSON.stringify(row.user_badges || [])}`);
-
+            
             users.set(row.username, {
-                userId: row.user_id,
                 passwordHash: row.password_hash,
                 salt: row.salt,
                 createdAt: row.created_at,
@@ -170,12 +169,10 @@ async function loadUsersFromDatabase() {
 
 /**
  * Сохранение пользователя в БД
- * @returns {Promise<number>} user_id
  */
 async function saveUserToDatabase(username, userData) {
     try {
-        const userId = await db.saveUser(username, userData);
-        return userId;
+        await db.saveUser(username, userData);
     } catch (err) {
         console.error('❌ Save user error:', err);
         throw err;
@@ -691,7 +688,7 @@ async function handleRegister(ws, { username, password }, clientIp) {
             twoFactorSecret: null,
             twoFactorEnabled: false,
             twoFactorBackupCodes: null,
-            userBadges: [], // По умолчанию у новых пользователей нет хначков
+            userBadges: [],
             status: 'offline',
             activeChat: null,
             devices: new Map()
@@ -701,13 +698,9 @@ async function handleRegister(ws, { username, password }, clientIp) {
         users.set(username, userData);
 
         // 🔒 🔴 ЖДЁМ сохранения в базу данных перед продолжением
-        const userId = await saveUserToDatabase(username, userData);
-        
-        // Сохраняем user_id в памяти
-        userData.userId = userId;
+        await saveUserToDatabase(username, userData);
 
         console.log(`✅ User saved to database: ${username}`);
-        console.log(`   user_id: ${userId}`);
         console.log(`   passwordHash: ${passwordHash.substring(0, 16)}...`);
         console.log(`   salt: ${salt.substring(0, 16)}...`);
 
@@ -741,7 +734,6 @@ async function handleRegister(ws, { username, password }, clientIp) {
         ws.send(JSON.stringify({
             type: 'register_success',
             username,
-            userId,
             deviceId,
             token: tokenId,
             isVisibleInDirectory: user.isVisibleInDirectory,
@@ -825,7 +817,6 @@ function handleLogin(ws, { username, password }, clientIp) {
             ws.send(JSON.stringify({
                 type: 'login_2fa_required',
                 username,
-                userId: user.userId,
                 deviceId,
                 token: tokenId,
                 message: 'Требуется код 2FA'
@@ -834,7 +825,6 @@ function handleLogin(ws, { username, password }, clientIp) {
             ws.send(JSON.stringify({
                 type: 'login_success',
                 username,
-                userId: user.userId,
                 deviceId,
                 token: tokenId,
                 isVisibleInDirectory: user.isVisibleInDirectory,
@@ -916,7 +906,6 @@ function handleAutoLogin(ws, { username, token, deviceId }, clientIp) {
         ws.send(JSON.stringify({
             type: 'login_success',
             username,
-            userId: user.userId,
             deviceId: newDeviceId,
             token: tokenId,
             isVisibleInDirectory: user.isVisibleInDirectory,
@@ -1002,7 +991,6 @@ function handleLogin2FA(ws, { username, token, deviceId, twoFactorToken, useBack
     ws.send(JSON.stringify({
         type: 'login_success',
         username,
-        userId: user.userId,
         deviceId: session.deviceId,
         token,
         isVisibleInDirectory: user.isVisibleInDirectory,
@@ -1514,109 +1502,6 @@ function handleGetBadgeCatalog(ws) {
     console.log(`🏅 Sent badge catalog: ${catalog.length} items`);
 }
 
-// ============================================================================
-// 👤 Обработчики для работы с user_id и хначками
-// ============================================================================
-
-/**
- * Поиск пользователя по user_id
- */
-async function handleGetUserById(ws, { userId }) {
-    if (!userId || typeof userId !== 'number') {
-        return ws.send(JSON.stringify({
-            type: 'error',
-            message: 'Неверный формат user_id'
-        }));
-    }
-
-    try {
-        const dbUser = await db.getUserById(userId);
-        
-        if (!dbUser) {
-            return ws.send(JSON.stringify({
-                type: 'user_not_found',
-                message: 'Пользователь с таким ID не найден'
-            }));
-        }
-
-        const user = users.get(dbUser.username);
-        
-        ws.send(JSON.stringify({
-            type: 'user_found',
-            user: {
-                userId: dbUser.user_id,
-                username: dbUser.username,
-                status: user?.status || 'offline',
-                isVisibleInDirectory: dbUser.is_visible_in_directory,
-                userBadges: dbUser.user_badges || []
-            }
-        }));
-
-        console.log(`🔍 User ${userId} found: ${dbUser.username}`);
-    } catch (err) {
-        console.error('❌ getUserById error:', err);
-        ws.send(JSON.stringify({
-            type: 'error',
-            message: 'Ошибка при поиске пользователя'
-        }));
-    }
-}
-
-/**
- * Получение информации о текущем пользователе (с user_id и badges)
- */
-function handleGetMyProfile(ws, username) {
-    const user = users.get(username);
-    if (!user) {
-        return ws.send(JSON.stringify({
-            type: 'error',
-            message: 'Пользователь не найден'
-        }));
-    }
-
-    ws.send(JSON.stringify({
-        type: 'my_profile',
-        profile: {
-            userId: user.userId,
-            username: username,
-            status: user.status,
-            isVisibleInDirectory: user.isVisibleInDirectory,
-            allowGroupInvite: user.allowGroupInvite,
-            userBadges: user.userBadges || [],
-            twoFactorEnabled: user.twoFactorEnabled
-        }
-    }));
-
-    console.log(`📋 ${username} requested profile info`);
-}
-
-/**
- * Выдача хначка пользователю (только через административный доступ)
- * Эта функция предназначена для использования через базу данных
- */
-async function handleAddBadge(ws, username, { targetUserId, badgeId }) {
-    const user = users.get(username);
-    if (!user) {
-        return ws.send(JSON.stringify({
-            type: 'error',
-            message: 'Пользователь не найден'
-        }));
-    }
-
-    // 🔒 Проверка: выдавать хначки можно только через БД напрямую
-    // Эта команда возвращает информацию о том, что нужно использовать БД
-    ws.send(JSON.stringify({
-        type: 'badge_admin_info',
-        message: 'Выдача хначков осуществляется только через прямое обновление базы данных',
-        instructions: [
-            'Используйте SQL запрос:',
-            `UPDATE users SET user_badges = user_badges || '"${badgeId}"'::jsonb WHERE user_id = ${targetUserId};`,
-            'Или через функцию addUserBadge в db.js'
-        ]
-    }));
-
-    console.log(`🏅 ${username} requested badge ${badgeId} for user ${targetUserId} - DB only operation`);
-}
 
 // ============================================================================
 // 🔒 2FA Обработчики
@@ -1820,7 +1705,7 @@ function handleCreateGroup(ws, username, { name, members }) {
     }
 
     if (!Array.isArray(members) || members.length === 0) {
-        return ws.send(JSON.stringify({ type: 'create_group_error', message: 'Добавьте хотя бы одн��го участника' }));
+        return ws.send(JSON.stringify({ type: 'create_group_error', message: 'Добавьте хотя бы одного участника' }));
     }
 
     // Проверяем, что все участники существуют и разрешили приглашения
@@ -2256,18 +2141,6 @@ wss.on('connection', (ws, req) => {
             // 🏅 Обработка запроса каталога значков
             case 'get_badge_catalog':
                 if (session) handleGetBadgeCatalog(ws);
-                break;
-            // 🔍 Поиск пользователя по user_id
-            case 'get_user_by_id':
-                if (session) handleGetUserById(ws, data);
-                break;
-            // 📋 Получение информации о своём профиле
-            case 'get_my_profile':
-                if (session) handleGetMyProfile(ws, username);
-                break;
-            // 🏅 Выдача хначка (только через БД)
-            case 'add_badge':
-                if (session) handleAddBadge(ws, username, data);
                 break;
             // 🔒 2FA команды
             case '2fa_setup':

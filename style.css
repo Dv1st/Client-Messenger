@@ -502,27 +502,11 @@ body.font-large { font-size: 16px; }
     justify-content: center;
     transition: all var(--transition-fast);
     box-shadow: 0 2px 8px var(--shadow-color);
-    flex-shrink: 0; /* Чтобы кнопка не сжималась */
 }
 
 .sidebar-toggle:hover {
     background: var(--accent-hover);
-    right: -12px;
-}
-
-/* Кнопка переключения sidebar в свёрнутом состоянии */
-.sidebar.collapsed .sidebar-toggle {
-    right: -10px;
-}
-
-.sidebar.collapsed .sidebar-toggle:hover {
-    right: -12px;
-}
-
-/* Добавляем отступ для chat-main, чтобы кнопка не перекрывала контент */
-.chat-main {
-    position: relative;
-    z-index: 1;
+    right: -14px;
 }
 
 /* Поиск - обновлённый стиль */
@@ -1546,7 +1530,6 @@ body.font-large { font-size: 16px; }
     background: var(--window-bg);
     overflow: hidden;
     min-width: 0;
-    padding-left: 8px; /* Отступ слева, чтобы кнопка sidebar не перекрывала контент */
 }
 
 .chat-header {
