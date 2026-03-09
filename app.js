@@ -1171,6 +1171,13 @@ function handleMessageReceive(data) {
 
     // Показываем сообщение если чат открыт
     if (selectedUser === data.sender || (data.sender === currentUser && data.privateTo === selectedUser)) {
+        // 🔹 Проверяем, не было ли уже добавлено это сообщение (защита от дублирования)
+        const existingMessage = DOM.messagesList.querySelector(`.message[data-timestamp="${data.timestamp}"]`);
+        if (existingMessage) {
+            console.log('⚠️ Message already exists, skipping:', data.timestamp);
+            return;
+        }
+
         const isAdded = addUnreadMessage();
         if (isAdded) {
             addMessage(messageData);
@@ -2063,11 +2070,19 @@ function getUserProfileData(username) {
  * @param {string} username - Имя пользователя
  */
 function addChatToActive(username) {
+    console.log('🔵 addChatToActive called with:', username);
+    console.log('🔵 users array:', users.map(u => u.name));
+    
     const user = users.find(u => u.name === username);
+    console.log('🔵 Found user:', user ? user.name : 'not found');
+    
     if (user) {
-        user.activeChat = currentUser; // Показываем, что чат активен с ��екущим пользователем
+        user.activeChat = currentUser;
         saveUsersToStorage();
-        renderAll(); // Перерисовываем и активных чаты, и список пользователей
+        renderAll();
+        console.log('✅ Chat added to active:', username);
+    } else {
+        console.warn('⚠️ addChatToActive: user not found in users array:', username);
     }
 }
 

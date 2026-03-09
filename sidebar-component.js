@@ -157,11 +157,17 @@ class SidebarComponent {
         // Делегирование событий для чатов
         if (this.dom.chatsList) {
             this.dom.chatsList.addEventListener('click', (e) => this.handleChatClick(e));
+            console.log('✅ chatsList event listener bound');
+        } else {
+            console.warn('⚠️ chatsList element not found');
         }
 
         // Делегирование событий для результатов поиска
         if (this.dom.searchResultsList) {
             this.dom.searchResultsList.addEventListener('click', (e) => this.handleSearchResultClick(e));
+            console.log('✅ searchResultsList event listener bound');
+        } else {
+            console.warn('⚠️ searchResultsList element not found');
         }
     }
 
@@ -500,12 +506,26 @@ class SidebarComponent {
         const resultItem = e.target.closest('.search-result-item');
         const actionBtn = e.target.closest('.search-result-action-btn');
 
-        if (!resultItem) return;
+        console.log('🔵 handleSearchResultClick event:', {
+            target: e.target?.className,
+            closestItem: resultItem?.className,
+            isActionBtn: !!actionBtn
+        });
+
+        if (!resultItem) {
+            console.warn('⚠️ handleSearchResultClick: no resultItem');
+            return;
+        }
 
         const userId = resultItem.dataset.userId;
         const username = resultItem.dataset.username;
 
-        console.log('🔵 handleSearchResultClick:', { userId, username, isActionBtn: !!actionBtn });
+        console.log('🔵 handleSearchResultClick:', {
+            userId,
+            username,
+            isActionBtn: !!actionBtn,
+            allDatasets: resultItem.dataset
+        });
 
         if (!username) {
             console.warn('⚠️ handleSearchResultClick: no username');
