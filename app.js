@@ -31,7 +31,6 @@ let unreadMessagesCount = 0;
 let isUserAtBottom = true;
 
 // Контекстное меню сообщений
-let messageContextMenuTarget = null;
 let replyToMessage = null;
 
 // 👥 Групповые чаты
@@ -41,14 +40,11 @@ let selectedGroup = null; // Текущая выбранная группа
 // 👤 Система профилей
 let userProfile = null; // Объект с данными профиля текущего пользователя
 let userBadges = []; // Массив значков с состоянием visibility
-let viewedProfileUserId = null; // ID пользователя, чей профиль сейчас просматривается
 
 // 🔐 Система шифрования (E2EE)
 let masterKey = null; // Master Key пользователя (в памяти, не сохраняется)
-let userSalt = null; // Соль пользователя для деривации ключа
 let masterKeyTimeout = null; // Таймер очистки ключа
 const MASTER_KEY_TIMEOUT = 5 * 60 * 1000; // 5 минут неактивности
-let pendingPassword = null; // Временное хранение пароля для инициализации шифрования
 
 // ============================================================================
 // 🔹 Константы
@@ -56,12 +52,6 @@ let pendingPassword = null; // Временное хранение пароля 
 const WS_URL = 'wss://client-messenger-production.up.railway.app';
 const DEBOUNCE_DELAY = 300;
 const MESSAGE_MAX_LENGTH = 10000;
-const MAX_MESSAGES_IN_STORAGE = 100;
-const DEFAULT_MESSAGE_COLOR = '#7B2CBF'; // 🔹 Цвет сообщений по умолчанию (фиолетовый)
-
-const STORAGE_KEYS = {
-    USERS: 'messenger_users'
-};
 
 // ============================================================================
 // 🔹 DOM Cache (кэширование элементов для производительности)
@@ -1361,20 +1351,8 @@ function requestAudioPermission() {
 }
 
 // ============================================================================
-// 🔹 Заглушки для обработчиков сообщений (чтобы избежать ошибок)
+// 🔹 Загрузка истории сообщений
 // ============================================================================
-
-/**
- * Индикатор набора текста
- */
-function handleTypingIndicator(from, isTyping) {
-    // Заглушка - реализация в основной части кода
-    // console.log(`📝 ${from} is typing: ${isTyping}`);
-}
-
-/**
- * Загрузка истории сообщений
- */
 function loadMessageHistory(messages, chatName, groupId) {
     if (!messages || !Array.isArray(messages)) return;
 
@@ -3529,19 +3507,8 @@ async function sendMessage() {
         if (sendToServer(groupMessage)) {
             const msgTimestamp = Date.now();
 
-            addMessage({
-                sender: currentUser,
-                text: messageText,
-                time,
-                timestamp: msgTimestamp,
-                deliveryStatus: 'pending',
-                replyTo: groupMessage.replyTo,
-                groupId: selectedGroup,
-                files: filesData,
-                encrypted: !!encryptedContent,
-                encryptedContent: encryptedContent,
-                encryptionHint: encryptionHint
-            }, true);
+            // 🔧 FIX: Не добавляем сообщение здесь, сервер вернёт его через receive_group_message
+            // Это предотвращает дублирование сообщений у отправителя
 
             const group = groups.find(g => g.id === selectedGroup);
             if (group) {
@@ -3606,20 +3573,11 @@ async function sendMessage() {
     if (sendToServer(message)) {
         const msgTimestamp = Date.now();
 
-        addMessage({
-            sender: currentUser,
-            text: messageText,
-            time,
-            timestamp: msgTimestamp,
-            deliveryStatus: 'pending',
-            replyTo: message.replyTo,
-            files: filesData,
-            encrypted: !!encryptedContent,
-            encryptedContent: encryptedContent,
-            encryptionHint: encryptionHint
-        }, true);
+        // 🔧 FIX: Не добавляем сообщение здесь, сервер вернёт его через receive_message
+        // Это предотвращает дублирование сообщений у отправителя
 
         if (selectedUser) {
+            // Сохраняем в localStorage для истории
             saveMessageToStorage(selectedUser, {
                 sender: currentUser,
                 text: messageText,

@@ -50,7 +50,7 @@ const EMOJI_BADGES_CATALOG = {
     'heart':         { icon: '❤️', name: 'Любимчик', description: 'Даже страшно представить как его получить...' },
     'trophy':        { icon: '🏅', name: 'Трофей', description: 'Победитель' },
     'medal':         { icon: '🎖️', name: 'Медалька(шоколадная)', description: 'Что-то сделал' },
-    'stop':         { icon: '✋', name: 'СТПОЭ', description: 'СТОП! Мне не приятно' },
+    'stop':         { icon: '✋', name: 'СТОПЭ', description: 'СТОП! Мне не приятно' },
     'sparkles':      { icon: '✨', name: 'Звезда', description: 'Спар-р-р-рки?!' },
     'alien':         { icon: '👽', name: 'Консультант ДНС', description: 'Ходят слухи, что это самый оригинальный кослпей...' },
     'robot':         { icon: '🤖', name: 'T9', description: 'Виновник твоих неправильна сообщения' },
@@ -127,7 +127,9 @@ const groups = new Map(); // groupId → {id, name, creator, members: Set, creat
  */
 async function loadUsersFromDatabase() {
     try {
+        console.log('📥 Loading users from database...');
         const rows = await db.getAllUsers();
+        console.log(`📥 Found ${rows.length} users in database`);
 
         rows.forEach(row => {
             // 🔐 Отладка: проверяем загрузку salt и passwordHash
@@ -155,8 +157,8 @@ async function loadUsersFromDatabase() {
             });
         });
 
-        console.log(`✅ Loaded ${rows.length} users from database`);
-        return rows.length;
+        console.log(`✅ Loaded ${users.size} total users from database`);
+        return users.size;
     } catch (err) {
         if (err.code === '42P01') { // table does not exist
             console.warn('⚠️  Users table does not exist yet (first run)');
@@ -185,12 +187,15 @@ async function saveUserToDatabase(username, userData) {
  */
 async function loadGroupsFromDatabase() {
     try {
+        console.log('📥 Loading groups from database...');
         const rows = await db.getAllGroups();
-        
+        console.log(`📥 Found ${rows.length} groups in database`);
+
         for (const row of rows) {
             const members = await db.getGroupMembers(row.id);
             const memberSet = new Set(members.map(m => m.username));
-            
+            console.log(`📥 Loading group: ${row.name} with ${memberSet.size} members`);
+
             groups.set(row.id, {
                 id: row.id,
                 name: row.name,
@@ -201,7 +206,7 @@ async function loadGroupsFromDatabase() {
             });
         }
 
-        console.log(`✅ Loaded ${rows.length} groups from database`);
+        console.log(`✅ Loaded ${groups.size} total groups from database`);
     } catch (err) {
         if (err.code === '42P01') { // table does not exist
             console.warn('⚠️  Groups table does not exist yet (first run)');
@@ -1988,7 +1993,7 @@ function handleCreateGroup(ws, username, { name, members }) {
         }
     }, ws);
 
-    // Обновляем список пользователей для всех (чтобы показать группы)
+    // 🔧 FIX: Обновляем список групп для всех участников
     broadcastGroupList();
 }
 
@@ -2116,7 +2121,7 @@ function handleGroupMessage(ws, sender, { groupId, text, timestamp, encrypted, h
 
     group.lastMessage = Date.now();
 
-    // Отправляем всем участникам группы
+    // Отправляем всем участникам группы (включая отправителя)
     for (const memberName of group.members) {
         const memberUser = users.get(memberName);
         if (memberUser) {
@@ -2127,13 +2132,6 @@ function handleGroupMessage(ws, sender, { groupId, text, timestamp, encrypted, h
             }
         }
     }
-
-    // Подтверждение доставки отправителю
-    ws.send(JSON.stringify({
-        type: 'message_confirmed',
-        timestamp: message.timestamp,
-        confirmed: true
-    }));
 
     console.log(`💬 Group message in ${groupId} from ${sender}`);
 }

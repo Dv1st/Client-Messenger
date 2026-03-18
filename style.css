@@ -993,98 +993,9 @@ body.font-large { font-size: 16px; }
     letter-spacing: 0.5px;
 }
 
-/* Сворачиваемые секции */
-.active-chats-section.collapsed .active-chats-list,
-.groups-section.collapsed .groups-list,
-.all-users-section.collapsed .all-users-list {
-    display: none;
-}
-
-.active-chats-section.collapsed .collapse-icon,
-.groups-section.collapsed .collapse-icon,
-.all-users-section.collapsed .collapse-icon {
-    transform: rotate(-90deg);
-}
-
-.collapse-section-btn {
-    background: transparent;
-    border: none;
-    color: var(--text-secondary);
-    cursor: pointer;
-    padding: 4px 8px;
-    border-radius: 4px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: all var(--transition-fast);
-}
-
-.collapse-section-btn:hover {
-    background: var(--element-bg);
-    color: var(--text-primary);
-}
-
-.collapse-section-btn .collapse-icon {
-    font-size: 12px;
-    transition: transform var(--transition-fast);
-}
-
-.collapse-section-btn.collapsed .collapse-icon {
-    transform: rotate(-90deg);
-}
-
-/* Свёрнутая секция пользователей */
-.users-section.collapsed .users-list {
-    display: none;
-}
-
 /* ============================================================================
    🔹 Секция групп
    ============================================================================ */
-.groups-section {
-    border-bottom: 1px solid var(--border-color);
-    flex-shrink: 0;
-}
-
-.groups-section.collapsed .groups-list {
-    display: none;
-}
-
-.groups-section-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 10px 12px 6px;
-}
-
-/* Контейнер для кнопок в заголовке групп */
-.groups-section-header .group-header-actions {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-}
-
-/* Кнопка создания группы */
-.create-group-btn {
-    width: 28px;
-    height: 28px;
-    border: none;
-    border-radius: 6px;
-    background: var(--accent);
-    color: white;
-    font-size: 16px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: background var(--transition-fast), transform var(--transition-fast);
-    padding: 0;
-}
-
-.create-group-btn:hover {
-    background: var(--accent-hover);
-    transform: scale(1.05);
-}
 
 .create-group-btn:active {
     transform: scale(0.95);
@@ -1170,83 +1081,6 @@ body.font-large { font-size: 16px; }
     margin-right: 8px;
     font-size: 14px;
     line-height: 1;
-}
-
-/* Элемент активного чата (старый стиль, можно удалить если не используется) */
-.active-chat-item {
-    display: flex;
-    align-items: center;
-    padding: 8px 10px;
-    margin: 2px 0;
-    border-radius: var(--border-radius-sm);
-    cursor: pointer;
-    transition: background var(--transition-fast);
-    background: var(--element-bg);
-}
-
-.active-chat-item:hover {
-    background: var(--element-bg-hover);
-}
-
-.active-chat-item .chat-icon {
-    margin-right: 10px;
-    font-size: 20px;
-    line-height: 1;
-}
-
-.active-chat-item .chat-name {
-    flex: 1;
-    font-weight: 500;
-    font-size: 13px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-/* Кнопки действий в активных чатах */
-.active-chat-item .chat-actions {
-    display: flex;
-    gap: 4px;
-    margin-right: 8px;
-}
-
-.active-chat-item .chat-action-btn {
-    background: transparent;
-    border: none;
-    cursor: pointer;
-    font-size: 14px;
-    width: 26px;
-    height: 26px;
-    border-radius: 6px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: background var(--transition-fast);
-    flex-shrink: 0;
-}
-
-.active-chat-item .chat-action-btn:hover {
-    background: var(--element-bg-hover);
-}
-
-.active-chat-item .chat-action-btn.pinned {
-    color: var(--pinned);
-}
-
-/* ✨ Счётчик непрочитанных */
-.active-chat-item .unread-badge {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 18px;
-    height: 18px;
-    padding: 0 5px;
-    background: var(--error);
-    color: white;
-    font-size: 11px;
-    font-weight: 700;
-    border-radius: 10px;
-    margin-left: 6px;
 }
 
 /* Разделитель */
@@ -1519,30 +1353,7 @@ body.font-large { font-size: 16px; }
     background: var(--status-in-chat);
 }
 
-/* 🔧 FIX: Удалены стили для .user-info и .footer-actions (не используются после упрощения footer) */
-
 /* Старые стили (оставляем для совместимости) */
-.current-user {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    flex: 1;
-    overflow: hidden;
-}
-
-.current-user .user-icon {
-    font-size: 20px;
-    flex-shrink: 0;
-}
-
-.current-user .user-label {
-    font-weight: 600;
-    font-size: 14px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
 .settings-btn {
     width: 40px;
     height: 40px;

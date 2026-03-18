@@ -327,66 +327,6 @@ function isCryptoSupported() {
 }
 
 // ============================================================================
-// 🧪 ТЕСТИРОВАНИЕ
-// ============================================================================
-
-/**
- * Тестирование криптографических функций
- * @returns {Promise<boolean>} - Успешность теста
- */
-async function runCryptoTest() {
-    console.log('🧪 Running crypto tests...');
-    
-    if (!isCryptoSupported()) {
-        console.error('❌ Web Crypto API not supported');
-        return false;
-    }
-    
-    try {
-        // Тест 1: Генерация соли
-        const salt = await generateSalt();
-        console.assert(salt.byteLength === 32, 'Salt length should be 32 bytes');
-        console.log('✅ Salt generation test passed');
-        
-        // Тест 2: Вывод Master Key
-        const testPassword = 'test_password_123';
-        const masterKey = await deriveMasterKey(testPassword, salt);
-        console.assert(masterKey !== null, 'Master key should be generated');
-        console.log('✅ Master Key derivation test passed');
-        
-        // Тест 3: Шифрование/расшифровка
-        const testMessage = 'Hello, World!';
-        const messageId = generateMessageId();
-        
-        const { encryptedContent, encryptionHint } = await encryptFullMessage(
-            testMessage, masterKey, messageId
-        );
-        
-        const decryptedText = await decryptFullMessage(
-            encryptedContent, encryptionHint, masterKey, messageId
-        );
-        
-        console.assert(decryptedText === testMessage, 'Decrypted text should match original');
-        console.log('✅ Encryption/Decryption test passed');
-        
-        // Тест 4: Уникальность ключей
-        const messageId2 = generateMessageId();
-        const { encryptedContent: encrypted2 } = await encryptFullMessage(
-            testMessage, masterKey, messageId2
-        );
-        
-        console.assert(encryptedContent !== encrypted2, 'Different messages should have different encryption');
-        console.log('✅ Unique encryption test passed');
-        
-        console.log('🎉 All crypto tests passed!');
-        return true;
-    } catch (error) {
-        console.error('❌ Crypto test failed:', error);
-        return false;
-    }
-}
-
-// ============================================================================
 // ЭКСПОРТ
 // ============================================================================
 if (typeof module !== 'undefined' && module.exports) {
@@ -402,8 +342,7 @@ if (typeof module !== 'undefined' && module.exports) {
         uint8ArrayToBase64,
         base64ToUint8Array,
         generateMessageId,
-        isCryptoSupported,
-        runCryptoTest
+        isCryptoSupported
     };
 }
 
@@ -421,7 +360,6 @@ if (typeof window !== 'undefined') {
         uint8ArrayToBase64,
         base64ToUint8Array,
         generateMessageId,
-        isCryptoSupported,
-        runCryptoTest
+        isCryptoSupported
     };
 }
