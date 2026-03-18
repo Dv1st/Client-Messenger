@@ -2,34 +2,12 @@
  * SidebarComponent - Компонент боковой панели мессенджера
  * @version 1.0.0
  * @description Боковая панель с поиском, списком чатов и глобальным каталогом пользователей
- * 
+ *
  * ИНТЕГРАЦИЯ С APP.JS:
  * - Использует реальные данные из app.js (users, groups, currentUser)
- * - Для моковых данных используется только при отсутствии реальных
  */
 
 'use strict';
-
-// ============================================================================
-// 🔹 Моковые данные (только для демонстрации/тестирования)
-// ============================================================================
-const MOCK_DATA = {
-    // Текущий пользователь
-    currentUser: {
-        id: 'user_1',
-        username: 'alex_dev',
-        displayName: 'Александр',
-        avatar: null,
-        status: 'online',
-        allowPublicView: true
-    },
-
-    // Активные чаты (личные) - ЗАПОЛНИТЕСЬ ИЗ APP.JS
-    activeChats: [],
-
-    // Пользователи для глобального поиска (с allow_public_view: true) - ЗАПОЛНИТЕСЬ ИЗ APP.JS
-    publicUsers: []
-};
 
 // ============================================================================
 // 🔹 SidebarComponent Class
@@ -58,7 +36,6 @@ class SidebarComponent {
         this.state = {
             currentUser: options.currentUser || null,
             chats: [],
-            publicUsers: [],
             isSearchFocused: false,
             searchQuery: '',
             selectedChatId: null
@@ -389,10 +366,9 @@ class SidebarComponent {
         }
 
         // Получаем реальных пользователей для поиска из app.js
-        let users = this.state.publicUsers;
-        if (typeof window.getPublicUsersData === 'function') {
-            users = window.getPublicUsersData();
-        }
+        const users = typeof window.getPublicUsersData === 'function'
+            ? window.getPublicUsersData()
+            : [];
 
         // Рендерим всех пользователей для поиска
         this.renderSearchResults(users);
@@ -430,10 +406,9 @@ class SidebarComponent {
         this.state.searchQuery = query;
 
         // Получаем реальных пользователей из app.js
-        let allUsers = this.state.publicUsers;
-        if (typeof window.getPublicUsersData === 'function') {
-            allUsers = window.getPublicUsersData();
-        }
+        const allUsers = typeof window.getPublicUsersData === 'function'
+            ? window.getPublicUsersData()
+            : [];
 
         // Фильтрация пользователей
         const filteredUsers = allUsers.filter(user => {
@@ -528,10 +503,9 @@ class SidebarComponent {
         }
 
         // Получаем реальных пользователей из app.js
-        let users = this.state.publicUsers;
-        if (typeof window.getPublicUsersData === 'function') {
-            users = window.getPublicUsersData();
-        }
+        const users = typeof window.getPublicUsersData === 'function'
+            ? window.getPublicUsersData()
+            : [];
 
         this.renderSearchResults(users);
 
@@ -569,12 +543,11 @@ class SidebarComponent {
         if (this.dom.searchBox) {
             this.dom.searchBox.blur();
         }
-        
+
         // 🔧 FIX: Обновляем результаты поиска чтобы скрыть пользователя с которым начался чат
         setTimeout(() => {
             if (typeof window.getPublicUsersData === 'function') {
-                const users = window.getPublicUsersData();
-                this.renderSearchResults(users);
+                this.renderSearchResults(window.getPublicUsersData());
             }
         }, 100);
     }
@@ -682,5 +655,5 @@ function escapeHtml(str) {
 // 🔹 Экспорт (для использования в app.js)
 // ============================================================================
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { SidebarComponent, MOCK_DATA };
+    module.exports = { SidebarComponent };
 }

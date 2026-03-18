@@ -48,11 +48,10 @@ const EMOJI_BADGES_CATALOG = {
     'fire':          { icon: '🔥', name: 'ПИРОМАНТ', description: 'Хочет видеть мир в ОГНЕ!!!' },
     'crown':         { icon: '👑', name: 'Queneeee', description: 'Quene-e-e-e!' },
     'heart':         { icon: '❤️', name: 'Любимчик', description: 'Даже страшно представить как его получить...' },
-    'star':          { icon: '🌟', name: 'Звезда', description: 'Путеводная звезда' },
     'trophy':        { icon: '🏅', name: 'Трофей', description: 'Победитель' },
     'medal':         { icon: '🎖️', name: 'Медалька(шоколадная)', description: 'Что-то сделал' },
     'stop':         { icon: '✋', name: 'СТПОЭ', description: 'СТОП! Мне не приятно' },
-    'sparkles':      { icon: '✨', name: 'Сияние', description: 'Спар-р-р-рки?!' },
+    'sparkles':      { icon: '✨', name: 'Звезда', description: 'Спар-р-р-рки?!' },
     'alien':         { icon: '👽', name: 'Консультант ДНС', description: 'Ходят слухи, что это самый оригинальный кослпей...' },
     'robot':         { icon: '🤖', name: 'T9', description: 'Виновник твоих неправильна сообщения' },
     'ghost':         { icon: '👻', name: 'Невидимка', description: 'Говорят что его не видно при свете дня...' },
@@ -836,6 +835,7 @@ function handleLogin(ws, { username, password }, clientIp) {
                 userId: user.userId,  // 🔴 Возвращаем user_id из БД
                 deviceId,
                 token: tokenId,
+                salt: user.salt,  // 🔐 Соль для деривации мастер-ключа
                 isVisibleInDirectory: user.isVisibleInDirectory,
                 allowGroupInvite: user.allowGroupInvite,
                 userBadges: user.userBadges || [],  // 🔴 Загружаем из БД
@@ -845,7 +845,7 @@ function handleLogin(ws, { username, password }, clientIp) {
                 lastLogin: user.lastLogin,
                 message: 'Вход выполнен успешно'
             }));
-            
+
             // 🔧 FIX: Рассылаем статус online всем пользователям
             broadcastUserList();
             broadcast({
@@ -1172,7 +1172,7 @@ function validateFiles(files) {
     return validFiles.length > 0 ? validFiles : null;
 }
 
-function handleMessage(ws, sender, { text, privateTo, timestamp, encrypted, hint, replyTo, files, groupId }) {
+function handleMessage(ws, sender, { text, privateTo, timestamp, encrypted, hint, replyTo, files, groupId, encryptedContent, encryptionHint, isEncrypted }) {
     // 🔒 Строгая валидация типа sender
     if (!sender || typeof sender !== 'string' || sender.length > USERNAME_MAX_LENGTH) {
         console.warn(`🚫 Invalid sender from ${getClientIp(ws)}`);
@@ -1229,13 +1229,20 @@ function handleMessage(ws, sender, { text, privateTo, timestamp, encrypted, hint
         }
     }
 
+    // 🔐 Определяем контент для отправки (зашифрованный или обычный)
+    const messageText = isEncrypted && encryptedContent ? encryptedContent : trimmedText;
+    const messageHint = isEncrypted && encryptionHint ? encryptionHint : (hint || null);
+    
     const message = {
         type: 'receive_message',
         sender,
-        text: trimmedText,
+        text: messageText,
         timestamp: timestamp || Date.now(),
-        encrypted: encrypted || false,
-        hint: hint || null,
+        encrypted: isEncrypted || encrypted || false,
+        hint: messageHint,
+        encryptedContent: encryptedContent || null,
+        encryptionHint: encryptionHint || null,
+        isEncrypted: isEncrypted || false,
         replyTo: replyTo || null,
         files: validFiles
     };
@@ -1247,12 +1254,12 @@ function handleMessage(ws, sender, { text, privateTo, timestamp, encrypted, hint
                 sender,
                 privateTo || null,
                 groupId || null,
-                trimmedText,
-                hint || null,
+                messageText,
+                messageHint,
                 replyTo || null,
                 validFiles || [],
                 message.timestamp,
-                encrypted || false
+                isEncrypted || encrypted || false
             );
         } catch (err) {
             console.error('❌ saveMessage error:', err);
@@ -2061,7 +2068,7 @@ function handleRemoveMemberFromGroup(ws, username, { groupId, member }) {
 /**
  * Отправка сообщения в группу
  */
-function handleGroupMessage(ws, sender, { groupId, text, timestamp, encrypted, hint, replyTo, files }) {
+function handleGroupMessage(ws, sender, { groupId, text, timestamp, encrypted, hint, replyTo, files, encryptedContent, encryptionHint, isEncrypted }) {
     const user = users.get(sender);
     if (!user) {
         return ws.send(JSON.stringify({ type: 'error', message: 'Требуется авториз����ция' }));
@@ -2087,15 +2094,22 @@ function handleGroupMessage(ws, sender, { groupId, text, timestamp, encrypted, h
     // 📎 Валидация файлов
     const validFiles = validateFiles(files);
 
+    // 🔐 Определяем контент для отправки (зашифрованный или обычный)
+    const messageText = isEncrypted && encryptedContent ? encryptedContent : trimmedText;
+    const messageHint = isEncrypted && encryptionHint ? encryptionHint : (hint || null);
+
     const message = {
         type: 'receive_group_message',
         sender,
         groupId,
         groupName: group.name,
-        text: trimmedText,
+        text: messageText,
         timestamp: timestamp || Date.now(),
-        encrypted: encrypted || false,
-        hint: hint || null,
+        encrypted: isEncrypted || encrypted || false,
+        hint: messageHint,
+        encryptedContent: encryptedContent || null,
+        encryptionHint: encryptionHint || null,
+        isEncrypted: isEncrypted || false,
         replyTo: replyTo || null,
         files: validFiles
     };

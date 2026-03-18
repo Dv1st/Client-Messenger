@@ -193,27 +193,18 @@
                 <footer class="input-panel bottom hidden" id="inputPanel">
                     <!-- Предпросмотр файлов -->
                     <div id="filePreviewContainer" class="file-preview-container hidden" role="region" aria-label="Прикреплённые файлы"></div>
-                    
+
                     <div class="input-wrapper">
                         <textarea id="messageBox" placeholder="Введите сообщение..." rows="1" aria-label="Поле ввода сообщения" maxlength="10000"></textarea>
                         <div class="input-actions">
-                            <input type="text" id="encryptKeyBox" placeholder="Ключ..." class="hidden encrypt-input" aria-label="Ключ шифрования" autocomplete="off">
                             <div class="buttons-group">
                                 <!-- Кнопка прикрепления файлов -->
                                 <button id="attachFileBtn" class="attach-file-btn" type="button" title="Прикрепить файл" aria-label="Прикрепить файл">📎</button>
                                 <!-- Скрытый input для файлов -->
                                 <input type="file" id="fileInput" style="position:absolute;width:0;height:0;opacity:0;" aria-label="Выбрать файл" accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt,.zip,.rar" multiple>
-                                <label class="encrypt-toggle" title="Шифрование">
-                                    <input type="checkbox" id="encryptCheckBox" aria-label="Включить шифрование">
-                                </label>
                                 <button id="sendBtn" class="send-btn" type="button" title="Отправить" aria-label="Отправить сообщение">➤</button>
                             </div>
                         </div>
-                    </div>
-                    <!-- Панель расшифровки -->
-                    <div id="decryptPanel" class="decrypt-panel hidden" role="region" aria-label="Расшифровка сообщения">
-                        <input type="text" id="decryptKeyBox" placeholder="Ключ для расшифровки..." aria-label="Ключ расшифровки" autocomplete="off">
-                        <button id="decryptBtn" class="btn-success" type="button" title="Расшифровать" aria-label="Расшифровать сообщение">🔓</button>
                     </div>
                 </footer>
             </main>
@@ -292,10 +283,6 @@
                 <!-- Приватность -->
                 <section class="settings-section">
                     <h3>🔒 Приватность</h3>
-                    <div class="setting-item">
-                        <label for="showOnline">Показывать "онлайн"</label>
-                        <input type="checkbox" id="showOnline" checked>
-                    </div>
                     <div class="setting-item">
                         <label for="showInDirectory">Отображать в списке пользователей</label>
                         <input type="checkbox" id="showInDirectory">
@@ -687,7 +674,8 @@
     </div>
 
     <!-- 🔹 Скрипты -->
-    <script src="app.js?v=6"></script>
+    <script src="crypto-utils.js"></script>
+    <script src="app.js?v=7"></script>
     <script src="sidebar-component.js"></script>
 </body>
 </html>

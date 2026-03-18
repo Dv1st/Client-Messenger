@@ -320,11 +320,6 @@ body.font-large { font-size: 16px; }
     display: block;
 }
 
-@keyframes fadeIn {
-    from { opacity: 0; transform: translateY(10px); }
-    to { opacity: 1; transform: translateY(0); }
-}
-
 .form-group {
     margin-bottom: 20px;
 }
@@ -1995,49 +1990,10 @@ body.font-large { font-size: 16px; }
     align-items: flex-end;
 }
 
-.encrypt-input {
-    width: 130px;
-    padding: 6px 10px;
-    background: var(--element-bg);
-    border: 2px solid transparent;
-    border-radius: var(--border-radius-sm);
-    color: var(--text-primary);
-    font-size: 12px;
-    outline: none;
-    transition: border-color var(--transition-fast);
-}
-
-.encrypt-input:focus {
-    border-color: var(--accent);
-}
-
 .buttons-group {
     display: flex;
     align-items: center;
     gap: 6px;
-}
-
-.encrypt-toggle {
-    color: var(--text-primary);
-    cursor: pointer;
-    font-size: 18px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 36px;
-    height: 36px;
-    background: var(--element-bg);
-    border-radius: var(--border-radius-sm);
-    transition: background var(--transition-fast);
-}
-
-.encrypt-toggle:hover {
-    background: var(--accent);
-}
-
-.encrypt-toggle input {
-    margin: 0;
-    cursor: pointer;
 }
 
 .send-btn {
@@ -2286,31 +2242,6 @@ body.font-large { font-size: 16px; }
 
 .message-file-wrapper {
     display: block;
-}
-
-/* Панель расшифровки */
-.decrypt-panel {
-    margin-top: 8px;
-    padding: 8px 12px;
-    background: var(--element-bg);
-    border-radius: var(--border-radius-sm);
-    display: flex;
-    gap: 8px;
-    align-items: center;
-}
-
-.decrypt-panel input {
-    flex: 1;
-    padding: 6px 10px;
-    background: transparent;
-    border: none;
-    color: var(--text-primary);
-    outline: none;
-    font-size: 13px;
-}
-
-.decrypt-panel input::placeholder {
-    color: var(--text-muted);
 }
 
 .btn-success {
