@@ -150,11 +150,12 @@ class SidebarComponent {
 
     /**
      * 🔧 FIX: Рендер футера с информацией о пользователе
+     * До авторизации отображается "Гость", после - имя пользователя
      */
     renderFooter() {
         const { currentUser } = this.state;
 
-        // Защита от null currentUser (до авторизации)
+        // 🔧 FIX: Защита от null currentUser (до авторизации отображаем "Гость")
         if (!currentUser) {
             if (this.dom.footerUserName) {
                 this.dom.footerUserName.textContent = 'Гость';
@@ -165,11 +166,16 @@ class SidebarComponent {
             if (this.dom.footerUserInitials) {
                 this.dom.footerUserInitials.textContent = 'G';
             }
+            if (this.dom.footerUserAvatar) {
+                // Сбрасываем аватар к умолчанию
+                this.dom.footerUserAvatar.innerHTML = `<span class="avatar-initials">G</span><span class="status-indicator offline"></span>`;
+            }
             return;
         }
 
+        // 🔧 FIX: После авторизации отображаем реальное имя пользователя
         if (this.dom.footerUserName) {
-            this.dom.footerUserName.textContent = currentUser.displayName || currentUser.username;
+            this.dom.footerUserName.textContent = escapeHtml(currentUser.displayName || currentUser.username);
         }
 
         if (this.dom.footerUserStatusIndicator) {
