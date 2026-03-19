@@ -3,206 +3,119 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="description" content="Client Messenger - безопасный веб-мессенджер">
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-    <meta http-equiv="Pragma" content="no-cache">
-    <meta http-equiv="Expires" content="0">
     <title>Client - Web Messenger</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💬</text></svg>">
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <!-- 🔹 Авторизация -->
+    <!-- Авторизация -->
     <div id="loginWindow" class="window">
-        <!-- Анимированный фон с кругами -->
         <div class="login-background">
-            <svg class="circle-ring-svg" viewBox="0 0 800 800">
-                <!-- Круги будут добавлены через JavaScript -->
-                <g id="circlesGroup"></g>
-            </svg>
-            <!-- Кнопка отключения анимации -->
-            <button class="animation-toggle-btn" id="animationToggleBtn" type="button" title="Включить/выключить анимацию">
-                ❄️
-            </button>
+            <svg class="circle-ring-svg" viewBox="0 0 800 800"><g id="circlesGroup"></g></svg>
+            <button class="animation-toggle-btn" id="animationToggleBtn" type="button" title="Включить/выключить анимацию">❄️</button>
         </div>
-        
         <div class="login-container">
             <h1 class="logo">CLIENT</h1>
             <div class="tabs" role="tablist">
-                <button class="tab-btn active" data-tab="login" role="tab" aria-selected="true" aria-controls="loginTab">Вход</button>
-                <button class="tab-btn" data-tab="register" role="tab" aria-selected="false" aria-controls="registerTab">Регистрация</button>
+                <button class="tab-btn active" data-tab="login" role="tab" aria-selected="true">Вход</button>
+                <button class="tab-btn" data-tab="register" role="tab" aria-selected="false">Регистрация</button>
             </div>
-
             <div id="loginTab" class="tab-content active" role="tabpanel">
                 <div class="form-group">
                     <label for="loginUsername">Имя пользователя</label>
-                    <input type="text" id="loginUsername" placeholder="Введите имя" autocomplete="username" inputmode="text">
+                    <input type="text" id="loginUsername" placeholder="Введите имя" autocomplete="username">
                 </div>
                 <div class="form-group">
                     <label for="loginPassword">Пароль</label>
-                    <input type="password" id="loginPassword" placeholder="Введите пароль" autocomplete="current-password" inputmode="text">
+                    <input type="password" id="loginPassword" placeholder="Введите пароль" autocomplete="current-password">
                 </div>
                 <button id="loginBtn" class="btn-primary" type="button" disabled>Войти</button>
             </div>
-
             <div id="registerTab" class="tab-content" role="tabpanel">
                 <div class="form-group">
                     <label for="regUsername">Имя пользователя</label>
-                    <input type="text" id="regUsername" placeholder="Введите имя" autocomplete="username" inputmode="text">
+                    <input type="text" id="regUsername" placeholder="Введите имя" autocomplete="username">
                 </div>
                 <div class="form-group">
                     <label for="regPassword">Пароль (мин. 8 символов)</label>
-                    <input type="password" id="regPassword" placeholder="Введите пароль (мин. 8 символов)" autocomplete="new-password" inputmode="text" minlength="8">
+                    <input type="password" id="regPassword" placeholder="Введите пароль (мин. 8 символов)" autocomplete="new-password" minlength="8">
                 </div>
                 <div class="form-group">
                     <label for="regConfirmPassword">Подтверждение пароля</label>
-                    <input type="password" id="regConfirmPassword" placeholder="Подтвердите пароль" autocomplete="new-password" inputmode="text">
+                    <input type="password" id="regConfirmPassword" placeholder="Подтвердите пароль" autocomplete="new-password">
                 </div>
                 <button id="registerBtn" class="btn-primary" type="button" disabled>Зарегистрироваться</button>
-                
-                <!-- Кнопка о разработчике -->
-                <button id="aboutDeveloperBtn" class="about-developer-btn" type="button" title="О разработчике" aria-label="О разработчике">
-                    ℹ️ О разработчике
-                </button>
+                <button id="aboutDeveloperBtn" class="about-developer-btn" type="button" aria-label="О разработчике">ℹ️ О разработчике</button>
             </div>
-
-            <div id="loginStatus" class="status-message" role="alert" aria-live="polite"></div>
+            <div id="loginStatus" class="status-message" role="alert"></div>
         </div>
     </div>
 
-    <!-- 🔹 Чат -->
+    <!-- Чат -->
     <div id="chatWindow" class="window hidden">
         <div class="chat-container">
-            <!-- Кнопка вызова sidebar (только для мобильных) -->
-            <button class="sidebar-trigger" id="sidebarTrigger" type="button" title="Открыть меню" aria-label="Открыть боковую панель">
-                <span aria-hidden="true">◀</span>
-            </button>
-            
-            <!-- Левая панель (Sidebar) -->
-            <aside class="sidebar" id="sidebar" role="navigation" aria-label="Боковая панель">
-                <!-- Кнопка сворачивания (видима только на ПК) -->
-                <button class="sidebar-toggle" id="sidebarToggle" type="button" title="Свернуть/Развернуть" aria-label="Переключить боковую панель" aria-expanded="true">
-                    <span class="toggle-icon" aria-hidden="true">◀</span>
-                </button>
-
-                <!-- 🔝 ОСНОВНАЯ ОБЛАСТЬ (над нижней зоной) -->
+            <button class="sidebar-trigger" id="sidebarTrigger" type="button" aria-label="Открыть меню"><span>◀</span></button>
+            <aside class="sidebar" id="sidebar" role="navigation">
+                <button class="sidebar-toggle" id="sidebarToggle" type="button" aria-label="Переключить боковую панель" aria-expanded="true"><span class="toggle-icon">◀</span></button>
                 <div class="sidebar-main-content">
-                    <!-- 1. Поиск -->
                     <div class="search-container">
                         <div class="search-box">
-                            <span class="search-icon" aria-hidden="true">🔍</span>
+                            <span class="search-icon">🔍</span>
                             <input type="text" id="searchBox" placeholder="Поиск пользователей или чатов" aria-label="Поиск чатов" autocomplete="off">
                             <button class="search-clear-btn hidden" id="searchClearBtn" type="button" aria-label="Очистить поиск">&times;</button>
                         </div>
                     </div>
-
-                    <!-- 2. Контейнер для результатов поиска (глобальный каталог) -->
-                    <div class="search-results-container hidden" id="searchResultsContainer" role="list" aria-label="Результаты поиска" aria-live="polite">
-                        <div class="search-results-header">
-                            <span class="section-title">🌐 Пользователи</span>
-                        </div>
+                    <div class="search-results-container hidden" id="searchResultsContainer" role="list" aria-live="polite">
+                        <div class="search-results-header"><span class="section-title">🌐 Пользователи</span></div>
                         <div class="search-results-list" id="searchResultsList"></div>
                     </div>
-
-                    <!-- 3. Список активных чатов (скрывается при фокусе на поиске) -->
                     <div class="chats-container" id="chatsContainer">
-                        <!-- Общий список чатов и групп -->
                         <div class="chats-section">
                             <div class="section-header chats-header">
                                 <span class="section-title">💬 Чаты и группы</span>
-                                <button class="create-chat-btn" id="createGroupBtn" type="button" title="Создать группу" aria-label="Создать группу">
-                                    <span aria-hidden="true">+</span>
-                                </button>
+                                <button class="create-chat-btn" id="createGroupBtn" type="button" aria-label="Создать группу"><span>+</span></button>
                             </div>
-                            <div class="chats-list" id="chatsList" role="list" aria-label="Список чатов"></div>
+                            <div class="chats-list" id="chatsList" role="list"></div>
                         </div>
                     </div>
                 </div>
-
-                <!-- 🔽 НИЖНЯЯ ЗАКРЕПЛЁННАЯ ЗОНА -->
                 <footer class="sidebar-footer" id="sidebarFooter">
-                    <!-- 🔧 FIX: Возвращаем карточку профиля для развёрнутого состояния -->
-                    <div class="current-user-card" id="footerProfileCard" role="button" tabindex="0" 
-                         aria-label="Открыть профиль" title="Профиль">
-                        <div class="user-avatar-small" id="footerUserAvatar" aria-hidden="true">
+                    <div class="current-user-card" id="footerProfileCard" role="button" tabindex="0" aria-label="Открыть профиль">
+                        <div class="user-avatar-small" id="footerUserAvatar">
                             <span class="avatar-initials" id="footerUserInitials">U</span>
-                            <span class="status-indicator online" id="footerUserStatusIndicator" 
-                                  aria-label="Статус: онлайн"></span>
+                            <span class="status-indicator online" id="footerUserStatusIndicator"></span>
                         </div>
-                        <div class="user-info" id="footerUserInfo">
-                            <span class="user-name" id="footerUserName">Гость</span>
-                        </div>
+                        <div class="user-info"><span class="user-name" id="footerUserName">Гость</span></div>
                     </div>
-                    <button id="footerSettingsBtn" class="settings-btn" type="button"
-                            title="Настройки" aria-label="Настройки">⚙️</button>
+                    <button id="footerSettingsBtn" class="settings-btn" type="button" aria-label="Настройки">⚙️</button>
                 </footer>
             </aside>
-
-            <!-- Правая панель (основная область чата) -->
             <main class="chat-main" role="main">
-                <!-- Заголовок чата -->
                 <header class="chat-header">
-                    <!-- Кнопка назад (только для мобильных) -->
-                    <button class="back-btn hidden" id="backBtn" type="button" title="Назад к списку" aria-label="Назад к списку чатов">
-                        <span class="back-icon" aria-hidden="true">◀</span>
-                    </button>
-
-                    <!-- Заголовок чата -->
+                    <button class="back-btn hidden" id="backBtn" type="button" aria-label="Назад"><span>◀</span></button>
                     <h2 id="chatTitle">Чат</h2>
-
-                    <!-- Статус собеседника -->
-                    <span id="chatUserStatus" class="chat-user-status hidden" aria-live="polite">
-                        <span class="status-dot" aria-hidden="true"></span>
-                        <span class="status-text"></span>
-                    </span>
-
-                    <!-- Кнопка меню чата -->
-                    <button class="chat-menu-btn" id="chatMenuBtn" type="button" title="Меню чата" aria-label="Меню чата" aria-haspopup="true" aria-expanded="false">
-                        <span aria-hidden="true">⋮</span>
-                    </button>
-
-                    <!-- Выпадающее меню чата -->
-                    <div class="chat-menu-dropdown hidden" id="chatMenuDropdown" role="menu" aria-label="Меню чата">
-                        <button class="chat-menu-item" id="deleteChatBtn" type="button" role="menuitem">
-                            <span class="chat-menu-item-icon" aria-hidden="true">🗑️</span>
-                            <span>Удалить чат</span>
-                        </button>
+                    <span id="chatUserStatus" class="chat-user-status hidden" aria-live="polite"><span class="status-dot"></span><span class="status-text"></span></span>
+                    <button class="chat-menu-btn" id="chatMenuBtn" type="button" aria-label="Меню чата" aria-haspopup="true" aria-expanded="false"><span>⋮</span></button>
+                    <div class="chat-menu-dropdown hidden" id="chatMenuDropdown" role="menu">
+                        <button class="chat-menu-item" id="deleteChatBtn" type="button" role="menuitem"><span>🗑️</span><span>Удалить чат</span></button>
                     </div>
                 </header>
-
-                <!-- Заглушка (когда чат не выбран) -->
                 <div id="chatPlaceholder" class="chat-placeholder">
-                    <div class="placeholder-content">
-                        <span aria-hidden="true" class="placeholder-icon">💬</span>
-                        <h3>Выберите чат для начала общения</h3>
-                        <p>Нажмите на пользователя в списке слева</p>
-                    </div>
+                    <div class="placeholder-content"><span class="placeholder-icon">💬</span><h3>Выберите чат для начала общения</h3><p>Нажмите на пользователя в списке слева</p></div>
                 </div>
-
-                <!-- Список сообщений -->
-                <div class="messages-list hidden" id="messagesList" role="log" aria-label="Сообщения" aria-live="polite"></div>
-
-                <!-- Кнопка прокрутки вниз -->
-                <button class="scroll-to-bottom-btn hidden" id="scrollToBottomBtn" type="button" title="Новые сообщения" aria-label="Прокрутить к новым сообщениям">
-                    <span class="scroll-icon" aria-hidden="true">▼</span>
-                    <span class="unread-count" id="unreadCount" aria-label="Количество непрочитанных">0</span>
-                </button>
-
-                <!-- Панель ввода сообщения -->
+                <div class="messages-list hidden" id="messagesList" role="log" aria-live="polite"></div>
+                <button class="scroll-to-bottom-btn hidden" id="scrollToBottomBtn" type="button" aria-label="Прокрутить к новым сообщениям"><span class="scroll-icon">▼</span><span class="unread-count" id="unreadCount">0</span></button>
                 <footer class="input-panel bottom hidden" id="inputPanel">
-                    <!-- Предпросмотр файлов -->
                     <div id="filePreviewContainer" class="file-preview-container hidden" role="region" aria-label="Прикреплённые файлы"></div>
-
                     <div class="input-wrapper">
                         <textarea id="messageBox" placeholder="Введите сообщение..." rows="1" aria-label="Поле ввода сообщения" maxlength="10000"></textarea>
                         <div class="input-actions">
                             <div class="buttons-group">
-                                <!-- Кнопка прикрепления файлов -->
-                                <button id="attachFileBtn" class="attach-file-btn" type="button" title="Прикрепить файл" aria-label="Прикрепить файл">📎</button>
-                                <!-- Скрытый input для файлов -->
+                                <button id="attachFileBtn" class="attach-file-btn" type="button" aria-label="Прикрепить файл">📎</button>
                                 <input type="file" id="fileInput" style="position:absolute;width:0;height:0;opacity:0;" aria-label="Выбрать файл" accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt,.zip,.rar" multiple>
-                                <button id="sendBtn" class="send-btn" type="button" title="Отправить" aria-label="Отправить сообщение">➤</button>
+                                <button id="sendBtn" class="send-btn" type="button" aria-label="Отправить сообщение">➤</button>
                             </div>
                         </div>
                     </div>
@@ -211,469 +124,200 @@
         </div>
     </div>
 
-    <!-- 🔹 Модальное окно настроек -->
+    <!-- Настройки -->
     <div id="settingsModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
         <div class="modal-content">
-            <header class="modal-header">
-                <h2 id="settingsTitle">⚙️ Настройки</h2>
-                <button class="modal-close" id="closeSettings" type="button" aria-label="Закрыть">&times;</button>
-            </header>
+            <header class="modal-header"><h2 id="settingsTitle">⚙️ Настройки</h2><button class="modal-close" id="closeSettings" type="button" aria-label="Закрыть">&times;</button></header>
             <div class="modal-body">
-                <!-- Оформление -->
                 <section class="settings-section">
                     <h3>🎨 Оформление</h3>
-                    <div class="setting-item">
-                        <label for="themeSelect">Тема</label>
-                        <select id="themeSelect">
-                            <option value="dark">Тёмная</option>
-                            <option value="light">Светлая</option>
-                        </select>
-                    </div>
-                    <div class="setting-item">
-                        <label for="accentColorSelect">Основной цвет интерфейса</label>
-                        <select id="accentColorSelect">
-                            <option value="#7B2CBF">🟣 Фиолетовый</option>
-                            <option value="#2563EB">🔵 Синий</option>
-                            <option value="#059669">🟢 Зелёный</option>
-                            <option value="#DC2626">🔴 Красный</option>
-                            <option value="#EA580C">🟠 Оранжевый</option>
-                            <option value="#DB2777">🩷 Розовый</option>
-                            <option value="#0891B2">🌊 Бирюзовый</option>
-                            <option value="#7C3AED">💜 Индиго</option>
-                        </select>
-                    </div>
-                    <div class="setting-item">
-                        <label for="messageColorSelect">Цвет своих сообщений</label>
-                        <select id="messageColorSelect">
-                            <option value="#7B2CBF">🟣 Фиолетовый</option>
-                            <option value="#2563EB">🔵 Синий</option>
-                            <option value="#059669">🟢 Зелёный</option>
-                            <option value="#DC2626">🔴 Красный</option>
-                            <option value="#EA580C">🟠 Оранжевый</option>
-                            <option value="#DB2777">🩷 Розовый</option>
-                            <option value="#0891B2">🌊 Бирюзовый</option>
-                            <option value="#7C3AED">💜 Индиго</option>
-                            <option value="#6B7280">⚫ Серый</option>
-                            <option value="#000000">⬛ Чёрный</option>
-                        </select>
-                    </div>
-                    <div class="setting-item">
-                        <label for="fontSizeSelect">Размер шрифта</label>
-                        <select id="fontSizeSelect">
-                            <option value="12">Маленький</option>
-                            <option value="14" selected>Средний</option>
-                            <option value="16">Большой</option>
-                        </select>
-                    </div>
+                    <div class="setting-item"><label for="themeSelect">Тема</label><select id="themeSelect"><option value="dark">Тёмная</option><option value="light">Светлая</option></select></div>
+                    <div class="setting-item"><label for="accentColorSelect">Цвет интерфейса</label><select id="accentColorSelect"><option value="#7B2CBF">🟣 Фиолетовый</option><option value="#2563EB">🔵 Синий</option><option value="#059669">🟢 Зелёный</option><option value="#DC2626">🔴 Красный</option><option value="#EA580C">🟠 Оранжевый</option><option value="#DB2777">🩷 Розовый</option><option value="#0891B2">🌊 Бирюзовый</option><option value="#7C3AED">💜 Индиго</option></select></div>
+                    <div class="setting-item"><label for="messageColorSelect">Цвет сообщений</label><select id="messageColorSelect"><option value="#7B2CBF">🟣 Фиолетовый</option><option value="#2563EB">🔵 Синий</option><option value="#059669">🟢 Зелёный</option><option value="#DC2626">🔴 Красный</option><option value="#EA580C">🟠 Оранжевый</option><option value="#DB2777">🩷 Розовый</option><option value="#0891B2">🌊 Бирюзовый</option><option value="#7C3AED">💜 Индиго</option><option value="#6B7280">⚫ Серый</option><option value="#000000">⬛ Чёрный</option></select></div>
+                    <div class="setting-item"><label for="fontSizeSelect">Размер шрифта</label><select id="fontSizeSelect"><option value="12">Маленький</option><option value="14" selected>Средний</option><option value="16">Большой</option></select></div>
                 </section>
-
-                <!-- Уведомления -->
                 <section class="settings-section">
                     <h3>🔔 Уведомления</h3>
-                    <div class="setting-item">
-                        <label for="soundNotify">🔊 Звуковые</label>
-                        <input type="checkbox" id="soundNotify" checked>
-                    </div>
-                    <div class="setting-item">
-                        <label for="pushNotify">📬 Push</label>
-                        <input type="checkbox" id="pushNotify">
-                    </div>
+                    <div class="setting-item"><label for="soundNotify">🔊 Звуковые</label><input type="checkbox" id="soundNotify" checked></div>
+                    <div class="setting-item"><label for="pushNotify">📬 Push</label><input type="checkbox" id="pushNotify"></div>
                 </section>
-
-                <!-- Приватность -->
                 <section class="settings-section">
                     <h3>🔒 Приватность</h3>
-                    <div class="setting-item">
-                        <label for="showInDirectory">Отображать в списке пользователей</label>
-                        <input type="checkbox" id="showInDirectory">
-                    </div>
-                    <div class="setting-item">
-                        <label for="allowGroupInvite">👥 Разрешить добавлять меня в групповые чаты</label>
-                        <input type="checkbox" id="allowGroupInvite">
-                        <small class="hint">По умолчанию: отключено. Включите, если хотите, чтобы другие могли добавлять вас в группы</small>
-                    </div>
+                    <div class="setting-item"><label for="showInDirectory">Отображать в списке пользователей</label><input type="checkbox" id="showInDirectory"></div>
+                    <div class="setting-item"><label for="allowGroupInvite">👥 Разрешить добавлять в группы</label><input type="checkbox" id="allowGroupInvite"><small class="hint">По умолчанию: отключено</small></div>
                 </section>
-
-                <!-- 🔒 2FA -->
                 <section class="settings-section">
-                    <h3>🔐 Двухфакторная аутентификация</h3>
+                    <h3>🔐 2FA</h3>
                     <div class="setting-item two-factor-item">
-                        <div class="two-factor-info">
-                            <label>Двухфакторная аутентификация</label>
-                            <small class="hint">Защитите свой аккаунт с помощью Google Authenticator или аналогичного приложения</small>
-                        </div>
+                        <div class="two-factor-info"><label>Двухфакторная аутентификация</label><small class="hint">Google Authenticator или аналогичное приложение</small></div>
                         <button id="twoFactorBtn" class="btn-2fa" type="button">Включить 2FA</button>
                     </div>
-                    <div id="twoFactorStatus" class="two-factor-status hidden">
-                        <span class="status-indicator online"></span>
-                        <span>2FA включён</span>
-                    </div>
+                    <div id="twoFactorStatus" class="two-factor-status hidden"><span class="status-indicator online"></span><span>2FA включён</span></div>
                 </section>
-
-                <!-- Выход -->
-                <section class="settings-section">
-                    <button id="logoutBtn" class="btn-logout" type="button">🚪 Выйти</button>
-                </section>
-
-                <!-- О разработчике -->
-                <section class="settings-section">
-                    <button id="aboutDeveloperSettingsBtn" class="about-developer-btn" type="button" title="О разработчике" aria-label="О разработчике">
-                        ℹ️ О разработчике
-                    </button>
-                </section>
+                <section class="settings-section"><button id="logoutBtn" class="btn-logout" type="button">🚪 Выйти</button></section>
+                <section class="settings-section"><button id="aboutDeveloperSettingsBtn" class="about-developer-btn" type="button" aria-label="О разработчике">ℹ️ О разработчике</button></section>
             </div>
         </div>
     </div>
 
-    <!-- 🔔 Звук уведомления -->
-    <audio id="notificationSound" preload="auto" aria-hidden="true">
-        <source src="https://assets.mixkit.co/active_storage/sfx/2354/2354-preview.mp3" type="audio/mpeg">
-    </audio>
+    <audio id="notificationSound" preload="auto"><source src="https://assets.mixkit.co/active_storage/sfx/2354/2354-preview.mp3" type="audio/mpeg"></audio>
 
-    <!-- 👥 Модальное окно создания группы -->
+    <!-- Группа -->
     <div id="createGroupModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="createGroupTitle">
         <div class="modal-content modal-content-small">
-            <header class="modal-header">
-                <h2 id="createGroupTitle">👥 Создать группу</h2>
-                <button class="modal-close" id="closeCreateGroup" type="button" aria-label="Закрыть">&times;</button>
-            </header>
+            <header class="modal-header"><h2 id="createGroupTitle">👥 Создать группу</h2><button class="modal-close" id="closeCreateGroup" type="button" aria-label="Закрыть">&times;</button></header>
             <div class="modal-body">
-                <div class="form-group">
-                    <label for="groupNameInput">Название группы</label>
-                    <input type="text" id="groupNameInput" placeholder="Введите название группы" maxlength="50">
-                </div>
-                <div class="form-group">
-                    <label>Участники (выберите пользователей)</label>
-                    <div class="group-members-select" id="groupMembersSelect">
-                        <!-- Список пользователей для выбора -->
-                    </div>
-                    <small class="hint">Выберите хотя бы одного пользователя. Пользователи должны разрешить добавление в группы.</small>
-                </div>
+                <div class="form-group"><label for="groupNameInput">Название группы</label><input type="text" id="groupNameInput" placeholder="Введите название группы" maxlength="50"></div>
+                <div class="form-group"><label>Участники</label><div class="group-members-select" id="groupMembersSelect"></div><small class="hint">Выберите хотя бы одного пользователя</small></div>
                 <button id="createGroupConfirmBtn" class="btn-primary" type="button">Создать группу</button>
-                <div id="createGroupStatus" class="status-message" role="alert" aria-live="polite"></div>
+                <div id="createGroupStatus" class="status-message" role="alert"></div>
             </div>
         </div>
     </div>
 
-    <!-- 👤 Модальное окно профиля пользователя -->
+    <!-- Профиль -->
     <div id="profileModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="profileTitle">
         <div class="modal-content modal-content-profile">
             <header class="modal-header profile-modal-header">
                 <h2 id="profileTitle">Профиль</h2>
                 <div class="profile-header-actions">
-                    <button id="editProfileBtn" class="edit-profile-btn" type="button" title="Редактировать профиль" aria-label="Редактировать профиль">✏️</button>
+                    <button id="editProfileBtn" class="edit-profile-btn" type="button" aria-label="Редактировать профиль">✏️</button>
                     <button class="modal-close" id="closeProfile" type="button" aria-label="Закрыть">&times;</button>
                 </div>
             </header>
             <div class="modal-body profile-modal-body">
-                <!-- Аватар и основная информация -->
                 <div class="profile-header-section">
                     <div class="avatar-container" id="avatarContainer">
                         <img src="" alt="Аватар" id="profileAvatar" class="profile-avatar">
-                        <div class="avatar-overlay" id="avatarOverlay">
-                            <span class="avatar-upload-icon">📷</span>
-                            <span class="avatar-upload-text">Загрузить</span>
-                        </div>
+                        <div class="avatar-overlay" id="avatarOverlay"><span class="avatar-upload-icon">📷</span><span class="avatar-upload-text">Загрузить</span></div>
                         <input type="file" id="avatarFileInput" class="hidden" accept="image/*">
                     </div>
                     <div class="profile-user-info">
                         <h3 class="profile-user-name" id="profileUserName">Гость</h3>
-                        <div class="profile-user-status" id="profileUserStatus">
-                            <span class="status-dot"></span>
-                            <span class="status-text">Онлайн</span>
-                        </div>
+                        <div class="profile-user-status" id="profileUserStatus"><span class="status-dot"></span><span class="status-text">Онлайн</span></div>
                     </div>
                 </div>
-
-                <!-- Секция значков/бейджей -->
-                <div class="profile-badges-section">
-                    <h4 class="badges-section-title">🏅 Значки</h4>
-                    <div class="badges-grid" id="badgesGrid">
-                        <!-- Значки будут добавлены через JavaScript -->
-                    </div>
-                </div>
-
-                <!-- Панель редактирования (скрыта по умолчанию) -->
+                <div class="profile-badges-section"><h4 class="badges-section-title">🏅 Значки</h4><div class="badges-grid" id="badgesGrid"></div></div>
                 <div class="edit-panel hidden" id="editPanel">
-                    <div class="edit-panel-header">
-                        <h4>✏️ Редактирование профиля</h4>
-                    </div>
+                    <div class="edit-panel-header"><h4>✏️ Редактирование</h4></div>
                     <div class="edit-panel-content">
-                        <!-- 🔧 FIX: ЗАДАЧА 1 - Поле установки статуса -->
-                        <div class="edit-option">
-                            <label for="customStatusSelect">Статус:</label>
-                            <select id="customStatusSelect">
-                                <option value="online">🟢 Онлайн</option>
-                                <option value="offline">⚫ Офлайн</option>
-                                <option value="busy">🔴 Не беспокоить</option>
-                                <option value="away">🟡 Отошёл</option>
-                                <option value="custom">✏️ Свой статус...</option>
-                            </select>
-                            <input type="text" id="customStatusText" class="hidden" 
-                                   placeholder="Введите свой статус" maxlength="50">
-                        </div>
-                        
-                        <!-- 🔧 FIX: ЗАДАЧА 2 - Перенос изменения аватарки в настройки -->
-                        <div class="edit-option">
-                            <label>Аватарка:</label>
-                            <div class="avatar-preview-container">
-                                <img src="" alt="Аватар" id="editAvatarPreview" class="edit-avatar-preview">
-                                <div class="avatar-edit-buttons">
-                                    <button id="changeAvatarBtn" class="btn-small" type="button">📷 Изменить</button>
-                                    <button id="removeAvatarBtn" class="btn-small btn-danger" type="button">🗑️ Удалить</button>
-                                </div>
-                            </div>
-                            <input type="file" id="editAvatarFileInput" class="hidden" accept="image/png,image/jpeg,image/jpg" 
-                                   title="PNG, JPG до 2MB">
-                            <small class="hint">Максимальный размер: 2MB, форматы: PNG, JPG</small>
-                        </div>
-                        
-                        <div class="badge-visibility-list" id="badgeVisibilityList">
-                            <!-- Список значков с переключателями -->
-                        </div>
+                        <div class="edit-option"><label for="customStatusSelect">Статус:</label><select id="customStatusSelect"><option value="online">🟢 Онлайн</option><option value="offline">⚫ Офлайн</option><option value="busy">🔴 Не беспокоить</option><option value="away">🟡 Отошёл</option><option value="custom">✏️ Свой статус...</option></select><input type="text" id="customStatusText" class="hidden" placeholder="Введите статус" maxlength="50"></div>
+                        <div class="edit-option"><label>Аватарка:</label><div class="avatar-preview-container"><img src="" alt="Аватар" id="editAvatarPreview" class="edit-avatar-preview"><div class="avatar-edit-buttons"><button id="changeAvatarBtn" class="btn-small" type="button">📷 Изменить</button><button id="removeAvatarBtn" class="btn-small btn-danger" type="button">🗑️ Удалить</button></div></div><input type="file" id="editAvatarFileInput" class="hidden" accept="image/png,image/jpeg,image/jpg"><small class="hint">Макс. 2MB, PNG/JPG</small></div>
+                        <div class="badge-visibility-list" id="badgeVisibilityList"></div>
                     </div>
-                    <div class="edit-panel-actions">
-                        <button id="saveProfileBtn" class="btn-save" type="button">💾 Сохранить</button>
-                        <button id="cancelProfileBtn" class="btn-cancel" type="button">❌ Отмена</button>
-                    </div>
+                    <div class="edit-panel-actions"><button id="saveProfileBtn" class="btn-save" type="button">💾 Сохранить</button><button id="cancelProfileBtn" class="btn-cancel" type="button">❌ Отмена</button></div>
                 </div>
-
-                <!-- Кнопка написать сообщение (для чужих профилей) -->
-                <div class="profile-actions-section hidden" id="profileActionsSection">
-                    <button id="sendMessageBtn" class="btn-send-message" type="button">💬 Написать сообщение</button>
-                </div>
-
-                <div id="profileStatusMessage" class="status-message" role="alert" aria-live="polite"></div>
+                <div class="profile-actions-section hidden" id="profileActionsSection"><button id="sendMessageBtn" class="btn-send-message" type="button">💬 Написать сообщение</button></div>
+                <div id="profileStatusMessage" class="status-message" role="alert"></div>
             </div>
         </div>
     </div>
 
-    <!-- Скрипт анимации кругов -->
+    <!-- 2FA -->
+    <div id="twoFactorModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="twoFactorModalTitle">
+        <div class="modal-content modal-content-2fa">
+            <header class="modal-header"><h2 id="twoFactorModalTitle">🔐 2FA</h2><button class="modal-close" id="closeTwoFactor" type="button" aria-label="Закрыть">&times;</button></header>
+            <div class="modal-body">
+                <div id="twoFactorStep1" class="two-factor-step">
+                    <h3>Настройка 2FA</h3>
+                    <ol class="two-factor-steps"><li>Установите Google Authenticator</li><li>Отсканируйте QR или введите ключ</li><li>Введите 6-значный код</li></ol>
+                    <div class="two-factor-qr"><img id="twoFactorQR" src="" alt="QR код"></div>
+                    <div class="two-factor-secret"><label>Ключ:</label><div class="secret-display"><code id="twoFactorSecret">---</code><button id="copySecretBtn" class="btn-copy" type="button">📋</button></div></div>
+                    <div class="form-group"><label for="twoFactorCodeInput">Код</label><input type="text" id="twoFactorCodeInput" placeholder="123456" maxlength="6" inputmode="numeric"></div>
+                    <button id="enableTwoFactorBtn" class="btn-primary" type="button">Включить 2FA</button>
+                </div>
+                <div id="twoFactorStep2" class="two-factor-step hidden">
+                    <h3>✅ 2FA включён!</h3>
+                    <p>Сохраните резервные коды:</p>
+                    <div class="two-factor-backup-codes" id="twoFactorBackupCodes"></div>
+                    <button id="downloadBackupCodesBtn" class="btn-secondary" type="button">📥 Скачать</button>
+                    <button id="closeTwoFactorAfterSetup" class="btn-primary" type="button">Готово</button>
+                </div>
+                <div id="twoFactorStep3" class="two-factor-step hidden">
+                    <h3>Отключить 2FA</h3>
+                    <p>Введите код:</p>
+                    <div class="form-group"><label for="disableTwoFactorCodeInput">Код</label><input type="text" id="disableTwoFactorCodeInput" placeholder="123456" maxlength="6" inputmode="numeric"></div>
+                    <button id="disableTwoFactorBtn" class="btn-danger" type="button">Отключить 2FA</button>
+                    <button id="cancelDisableTwoFactor" class="btn-secondary" type="button">Отмена</button>
+                </div>
+                <div id="twoFactorMessage" class="status-message" role="alert"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- О разработчике -->
+    <div id="aboutDeveloperModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="aboutDeveloperTitle">
+        <div class="modal-content modal-content-small">
+            <header class="modal-header"><h2 id="aboutDeveloperTitle">ℹ️ О разработчике</h2><button class="modal-close" id="closeAboutDeveloper" type="button" aria-label="Закрыть">&times;</button></header>
+            <div class="modal-body about-developer-body">
+                <div class="developer-info">
+                    <div class="developer-avatar"><span>👨‍💻</span></div>
+                    <h3 class="developer-name">Арсений Шляков</h3>
+                    <p class="developer-description">Единственный разработчик Client Messenger.</p>
+                    <div class="developer-badge"><span class="badge-icon">🏆</span><span>Lead Developer & Founder</span></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Анимация кругов -->
     <script>
         (function() {
             const circlesGroup = document.getElementById('circlesGroup');
             const toggleBtn = document.getElementById('animationToggleBtn');
-            if (!circlesGroup) {
-                console.error('circlesGroup not found');
-                return;
-            }
-
-            const CONFIG = {
-                totalCircles: 16,
-                ringRadius: 355,            // Радиус окружности
-                circleRadius: 30,
-                baseSpeed: 0.0002,
-                centerX: 400,
-                centerY: 400
-            };
-
-            let animationEnabled = true;
-            const circles = [];
-
+            if (!circlesGroup) return;
+            const CONFIG = { totalCircles: 16, ringRadius: 355, circleRadius: 30, baseSpeed: 0.0002, centerX: 400, centerY: 400 };
+            let animationEnabled = true, circles = [], animationFrameId = null;
+            
             for (let i = 0; i < CONFIG.totalCircles; i++) {
                 const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
                 circle.setAttribute('class', 'circle-element');
                 circle.setAttribute('r', CONFIG.circleRadius);
                 circlesGroup.appendChild(circle);
-
-                circles.push({
-                    element: circle,
-                    baseAngle: (i / CONFIG.totalCircles) * 2 * Math.PI
-                });
+                circles.push({ element: circle, baseAngle: (i / CONFIG.totalCircles) * 2 * Math.PI });
             }
-
+            
             const angleStep = (2 * Math.PI) / CONFIG.totalCircles;
             let globalRotation = 0;
-
-            // Обработчик кнопки
-            if (toggleBtn) {
-                toggleBtn.addEventListener('click', function() {
-                    animationEnabled = !animationEnabled;
-                    this.classList.toggle('paused', !animationEnabled);
-                    this.textContent = animationEnabled ? '❄️' : '▶️';
-                    this.title = animationEnabled ? 'Выключить анимацию' : 'Включить анимацию';
-                });
-            }
-
+            
+            toggleBtn?.addEventListener('click', function() {
+                animationEnabled = !animationEnabled;
+                this.classList.toggle('paused', !animationEnabled);
+                this.textContent = animationEnabled ? '❄️' : '▶️';
+                this.title = animationEnabled ? 'Выключить анимацию' : 'Включить анимацию';
+            });
+            
             const loginWindow = document.getElementById('loginWindow');
-            let animationFrameId = null;
-
             function animate() {
-                // 🔹 Останавливаем анимацию если окно входа скрыто
-                if (loginWindow && loginWindow.classList.contains('hidden')) {
-                    return; // Не продолжаем анимацию
-                }
-
-                if (animationEnabled) {
-                    globalRotation += CONFIG.baseSpeed * 16;
-                }
-
-                circles.forEach((circle, idx) => {
+                if (loginWindow?.classList.contains('hidden')) return;
+                if (animationEnabled) globalRotation += CONFIG.baseSpeed * 16;
+                circles.forEach((circle) => {
                     let currentAngle = (circle.baseAngle + globalRotation) % (2 * Math.PI);
                     if (currentAngle < 0) currentAngle += 2 * Math.PI;
-
-                    // Расстояние от правой точки (0 радиан = 3 часа)
-                    let dist = currentAngle;
-                    if (dist > Math.PI) dist = 2 * Math.PI - dist;
-
-                    let opacity;
+                    let dist = currentAngle > Math.PI ? 2 * Math.PI - currentAngle : currentAngle;
                     const steps = dist / angleStep;
-
-                    // Плавное изменение прозрачности с синусоидальной интерполяцией
-                    if (steps < 1) {
-                        // Зона полной невидимости (самый правый круг)
-                        opacity = 0;
-                    } else if (steps < 2) {
-                        // Плавное появление от 0% до 30%
-                        const t = (steps - 1);
-                        opacity = t * t * (3 - 2 * t) * 0.3; // Smoothstep
-                    } else if (steps < 4) {
-                        // Плавное появление от 30% до 100%
-                        const t = (steps - 2) / 2;
-                        opacity = 0.3 + t * t * (3 - 2 * t) * 0.7; // Smoothstep
-                    } else {
-                        // Полная видимость
-                        opacity = 1;
-                    }
-
+                    let opacity = steps < 1 ? 0 : steps < 2 ? ((steps - 1) ** 2 * (3 - 2 * (steps - 1))) * 0.3 : steps < 4 ? 0.3 + (((steps - 2) / 2) ** 2 * (3 - 2 * ((steps - 2) / 2))) * 0.7 : 1;
                     circle.element.setAttribute('opacity', opacity.toFixed(3));
-
-                    const x = CONFIG.centerX + Math.cos(currentAngle) * CONFIG.ringRadius;
-                    const y = CONFIG.centerY + Math.sin(currentAngle) * CONFIG.ringRadius;
-
-                    circle.element.setAttribute('cx', x);
-                    circle.element.setAttribute('cy', y);
+                    circle.element.setAttribute('cx', CONFIG.centerX + Math.cos(currentAngle) * CONFIG.ringRadius);
+                    circle.element.setAttribute('cy', CONFIG.centerY + Math.sin(currentAngle) * CONFIG.ringRadius);
                 });
-
                 animationFrameId = requestAnimationFrame(animate);
             }
-
             animate();
-
+            
             function handleResize() {
                 const isMobile = window.innerWidth <= 768;
                 CONFIG.ringRadius = isMobile ? 200 : 355;
                 CONFIG.circleRadius = isMobile ? 19 : 30;
                 CONFIG.centerX = isMobile ? 225 : 400;
                 CONFIG.centerY = isMobile ? 225 : 400;
-
-                circles.forEach(circle => {
-                    if (circle && circle.element) {
-                        circle.element.setAttribute('r', CONFIG.circleRadius);
-                    }
-                });
+                circles.forEach(c => c.element?.setAttribute('r', CONFIG.circleRadius));
             }
-
             window.addEventListener('resize', handleResize);
             handleResize();
         })();
     </script>
 
-    <!-- 🔐 Модальное окно настройки 2FA -->
-    <div id="twoFactorModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="twoFactorModalTitle">
-        <div class="modal-content modal-content-2fa">
-            <header class="modal-header">
-                <h2 id="twoFactorModalTitle">🔐 Двухфакторная аутентификация</h2>
-                <button class="modal-close" id="closeTwoFactor" type="button" aria-label="Закрыть">&times;</button>
-            </header>
-            <div class="modal-body">
-                <!-- Шаг 1: QR код -->
-                <div id="twoFactorStep1" class="two-factor-step">
-                    <h3>Настройка 2FA</h3>
-                    <ol class="two-factor-steps">
-                        <li>Установите приложение аутентификации (Google Authenticator, Authy, Microsoft Authenticator)</li>
-                        <li>Отсканируйте QR код или введите ключ вручную</li>
-                        <li>Введите 6-значный код из приложения</li>
-                    </ol>
-                    
-                    <div class="two-factor-qr">
-                        <img id="twoFactorQR" src="" alt="QR код для 2FA">
-                    </div>
-                    
-                    <div class="two-factor-secret">
-                        <label>Ключ вручную:</label>
-                        <div class="secret-display">
-                            <code id="twoFactorSecret">---</code>
-                            <button id="copySecretBtn" class="btn-copy" type="button" title="Копировать">📋</button>
-                        </div>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label for="twoFactorCodeInput">Код из приложения</label>
-                        <input type="text" id="twoFactorCodeInput" placeholder="123456" maxlength="6" pattern="[0-9]*" inputmode="numeric">
-                    </div>
-                    
-                    <button id="enableTwoFactorBtn" class="btn-primary" type="button">Включить 2FA</button>
-                </div>
-
-                <!-- Шаг 2: Резервные коды -->
-                <div id="twoFactorStep2" class="two-factor-step hidden">
-                    <h3>✅ 2FA успешно включён!</h3>
-                    <p class="two-factor-success-text">
-                        Сохраните эти резервные коды в безопасном месте. 
-                        Каждый код можно использовать только один раз.
-                    </p>
-                    
-                    <div class="two-factor-backup-codes" id="twoFactorBackupCodes">
-                        <!-- Коды будут добавлены через JavaScript -->
-                    </div>
-                    
-                    <button id="downloadBackupCodesBtn" class="btn-secondary" type="button">📥 Скачать коды</button>
-                    <button id="closeTwoFactorAfterSetup" class="btn-primary" type="button">Готово</button>
-                </div>
-
-                <!-- Шаг 3: Отключение 2FA -->
-                <div id="twoFactorStep3" class="two-factor-step hidden">
-                    <h3>Отключить 2FA</h3>
-                    <p>Введите код из приложения аутентификации или резервный код:</p>
-                    
-                    <div class="form-group">
-                        <label for="disableTwoFactorCodeInput">Код</label>
-                        <input type="text" id="disableTwoFactorCodeInput" placeholder="123456" maxlength="6" pattern="[0-9]*" inputmode="numeric">
-                    </div>
-                    
-                    <div class="form-group">
-                        <label>
-                            <input type="checkbox" id="useBackupCodeCheckbox"> Использовать резервный код
-                        </label>
-                    </div>
-                    
-                    <button id="disableTwoFactorBtn" class="btn-danger" type="button">Отключить 2FA</button>
-                    <button id="cancelDisableTwoFactor" class="btn-secondary" type="button">Отмена</button>
-                </div>
-
-                <div id="twoFactorMessage" class="status-message" role="alert" aria-live="polite"></div>
-            </div>
-        </div>
-    </div>
-
-    <!-- ℹ️ Модальное окно о разработчике -->
-    <div id="aboutDeveloperModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="aboutDeveloperTitle">
-        <div class="modal-content modal-content-small">
-            <header class="modal-header">
-                <h2 id="aboutDeveloperTitle">ℹ️ О разработчике</h2>
-                <button class="modal-close" id="closeAboutDeveloper" type="button" aria-label="Закрыть">&times;</button>
-            </header>
-            <div class="modal-body about-developer-body">
-                <div class="developer-info">
-                    <div class="developer-avatar">
-                        <span aria-hidden="true">👨‍💻</span>
-                    </div>
-                    <h3 class="developer-name">Арсений Шляков</h3>
-                    <p class="developer-description">
-                        Единственный разработчик проекта Client Messenger.
-                        <br>Никто больше не имеет причастия к созданию этого проекта.
-                    </p>
-                    <div class="developer-badge">
-                        <span class="badge-icon">🏆</span>
-                        <span>Lead Developer & Founder</span>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- 🔹 Скрипты -->
     <script src="crypto-utils.js"></script>
     <script src="app.js?v=7"></script>
     <script src="sidebar-component.js"></script>
