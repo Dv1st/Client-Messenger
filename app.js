@@ -184,6 +184,10 @@ function initLogin() {
     document.getElementById('loginBtn')?.addEventListener('click', handleLogin);
     document.getElementById('registerBtn')?.addEventListener('click', handleRegister);
     
+    // 2FA кнопки
+    document.getElementById('submitLogin2FABtn')?.addEventListener('click', submitLogin2FA);
+    document.getElementById('cancelLogin2FABtn')?.addEventListener('click', cancelLogin2FA);
+    
     const aboutBtn = document.getElementById('aboutDeveloperBtn');
     const aboutModal = document.getElementById('aboutDeveloperModal');
     const closeAbout = document.getElementById('closeAboutDeveloper');
@@ -2777,13 +2781,15 @@ function toggleEditMode() {
 function renderBadges(badges) {
     if (!DOM.badgesGrid) return;
     DOM.badgesGrid.innerHTML = '';
-    
-    const visible = badges?.filter(b => b.visible) || [];
+
+    // Если badges - массив объектов {id, visible}, фильтруем видимые
+    // Если badges - массив объектов (режим просмотра), показываем все
+    const visible = Array.isArray(badges) ? badges.filter(b => b.visible !== false) : [];
     if (!visible.length) {
         DOM.badgesGrid.innerHTML = '<p class="no-badges-text">Значки отсутствуют</p>';
         return;
     }
-    
+
     const fragment = document.createDocumentFragment();
     visible.forEach(badge => {
         const info = getBadgeInfo(badge.id);
@@ -3327,3 +3333,6 @@ function handleLogin2FAError(message) {
 // Экспорт для sidebar-component.js
 window.updateFooterProfile = updateFooterProfile;
 window.updateChatTitleWithBadges = updateChatTitleWithBadges;
+window.hasChatWithUser = hasChatWithUser;
+window.getPublicUsersData = getPublicUsersData;
+window.renderChatsListData = renderChatsListData;

@@ -32,6 +32,16 @@
                     <input type="password" id="loginPassword" placeholder="Введите пароль" autocomplete="current-password">
                 </div>
                 <button id="loginBtn" class="btn-primary" type="button" disabled>Войти</button>
+                <!-- 2FA форма входа -->
+                <div id="login2FAForm" class="hidden" style="margin-top:15px;padding-top:15px;border-top:1px solid var(--border-color);">
+                    <div class="form-group">
+                        <label for="login2FACodeInput">Код 2FA</label>
+                        <input type="text" id="login2FACodeInput" placeholder="123456" maxlength="6" inputmode="numeric" onkeydown="if(event.key==='Enter')submitLogin2FA()">
+                    </div>
+                    <button id="submitLogin2FABtn" class="btn-primary" type="button">Подтвердить</button>
+                    <button id="cancelLogin2FABtn" class="btn-secondary" type="button" style="margin-left:10px;">Отмена</button>
+                    <div id="login2FAStatus" class="status-message" role="alert"></div>
+                </div>
             </div>
             <div id="registerTab" class="tab-content" role="tabpanel">
                 <div class="form-group">
@@ -75,7 +85,10 @@
                         <div class="chats-section">
                             <div class="section-header chats-header">
                                 <span class="section-title">💬 Чаты и группы</span>
-                                <button class="create-chat-btn" id="createGroupBtn" type="button" aria-label="Создать группу"><span>+</span></button>
+                                <div style="display:flex;gap:4px;">
+                                    <button class="create-chat-btn" id="collapseActiveChatsBtn" type="button" aria-label="Свернуть чаты" title="Свернуть чаты" style="font-size:14px;width:24px;">−</button>
+                                    <button class="create-chat-btn" id="createGroupBtn" type="button" aria-label="Создать группу"><span>+</span></button>
+                                </div>
                             </div>
                             <div class="chats-list" id="chatsList" role="list"></div>
                         </div>
