@@ -2022,7 +2022,6 @@ function addMessage(data, isOwn = false, scroll = true) {
 // ============================================================================
 // Контекстное меню сообщений
 // ============================================================================
-let messageContextMenuTarget = null;
 
 function showMessageContextMenu(e, messageEl, messageData, isOwn) {
     closeMessageContextMenu();
