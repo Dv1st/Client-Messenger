@@ -149,33 +149,27 @@ class SidebarComponent {
     }
 
     /**
-     * 🔧 FIX: Рендер футера с информацией о пользователе
-     * До авторизации отображается "Гость", после - имя пользователя
+     * Рендер футера с информацией о пользователе
      */
     renderFooter() {
         const { currentUser } = this.state;
 
-        // 🔧 FIX: Защита от null currentUser (до авторизации отображаем "Гость")
-        if (!currentUser) {
+        // Если пользователь не авторизован - скрываем информацию
+        if (!currentUser || !currentUser.username) {
             if (this.dom.footerUserName) {
-                this.dom.footerUserName.textContent = 'Гость';
-            }
-            if (this.dom.footerUserStatusIndicator) {
-                this.dom.footerUserStatusIndicator.className = 'status-indicator offline';
+                this.dom.footerUserName.textContent = '';
             }
             if (this.dom.footerUserInitials) {
-                this.dom.footerUserInitials.textContent = 'G';
-            }
-            if (this.dom.footerUserAvatar) {
-                // Сбрасываем аватар к умолчанию
-                this.dom.footerUserAvatar.innerHTML = `<span class="avatar-initials">G</span><span class="status-indicator offline"></span>`;
+                this.dom.footerUserInitials.textContent = '';
             }
             return;
         }
 
-        // 🔧 FIX: После авторизации отображаем реальное имя пользователя
+        // После авторизации отображаем реальное имя пользователя
+        const displayName = currentUser.displayName || currentUser.username;
+
         if (this.dom.footerUserName) {
-            this.dom.footerUserName.textContent = escapeHtml(currentUser.displayName || currentUser.username);
+            this.dom.footerUserName.textContent = escapeHtml(displayName);
         }
 
         if (this.dom.footerUserStatusIndicator) {
@@ -183,11 +177,29 @@ class SidebarComponent {
         }
 
         if (this.dom.footerUserInitials) {
-            this.dom.footerUserInitials.textContent = this.getInitials(currentUser.displayName || currentUser.username);
+            this.dom.footerUserInitials.textContent = this.getInitials(displayName);
         }
 
         if (this.dom.footerUserAvatar && currentUser.avatar) {
-            this.dom.footerUserAvatar.innerHTML = `<img src="${escapeHtml(currentUser.avatar)}" alt="Аватар"><span class="status-indicator online"></span>`;
+            // 🔒 БЕЗОПАСНОСТЬ: создание без innerHTML
+            this.dom.footerUserAvatar.innerHTML = '';
+            const img = document.createElement('img');
+            img.src = escapeHtml(currentUser.avatar);
+            img.alt = 'Аватар';
+            this.dom.footerUserAvatar.appendChild(img);
+            const statusIndicator = document.createElement('span');
+            statusIndicator.className = 'status-indicator online';
+            this.dom.footerUserAvatar.appendChild(statusIndicator);
+        } else if (this.dom.footerUserAvatar) {
+            // Если нет аватара - показываем инициалы
+            this.dom.footerUserAvatar.innerHTML = '';
+            const initialsSpan = document.createElement('span');
+            initialsSpan.className = 'avatar-initials';
+            initialsSpan.textContent = this.getInitials(displayName);
+            this.dom.footerUserAvatar.appendChild(initialsSpan);
+            const statusIndicator = document.createElement('span');
+            statusIndicator.className = 'status-indicator online';
+            this.dom.footerUserAvatar.appendChild(statusIndicator);
         }
     }
 

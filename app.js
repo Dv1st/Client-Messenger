@@ -385,10 +385,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadSavedUsers(); // Загружаем пользователей до sidebar
     loadSettings();
     initHotkeys();
-    
-    // 🔧 FIX: Инициализация "Гость" до авторизации
-    updateFooterProfile();
-    
+
     initProfile(); // 👤 Инициализация системы профилей
     initSidebar(); // Инициализируем sidebar после загрузки пользователей
 
@@ -1834,36 +1831,22 @@ function initChat() {
  * 🔧 FIX: Обновление информации о профиле в footer sidebar
  */
 /**
- * 🔧 FIX: Обновление профиля в футере
- * До авторизации отображается "Гость", после - имя пользователя
+ * Обновление профиля в футере
+ * Отображает имя пользователя после авторизации
  */
 function updateFooterProfile() {
     if (!currentUser) {
-        // 🔧 FIX: До авторизации отображаем "Гость"
+        // Скрываем профиль если пользователь не авторизован
         if (DOM.footerUserName) {
-            DOM.footerUserName.textContent = 'Гость';
+            DOM.footerUserName.textContent = '';
         }
         if (DOM.footerUserInitials) {
-            DOM.footerUserInitials.textContent = 'G';
-        }
-        if (DOM.footerUserStatusIndicator) {
-            DOM.footerUserStatusIndicator.className = 'status-indicator offline';
-        }
-        // 🔒 БЕЗОПАСНОСТЬ: создание элементов без innerHTML
-        if (DOM.footerUserAvatar) {
-            DOM.footerUserAvatar.innerHTML = '';
-            const initialsSpan = document.createElement('span');
-            initialsSpan.className = 'avatar-initials';
-            initialsSpan.textContent = 'G';
-            DOM.footerUserAvatar.appendChild(initialsSpan);
-            const statusIndicator = document.createElement('span');
-            statusIndicator.className = 'status-indicator offline';
-            DOM.footerUserAvatar.appendChild(statusIndicator);
+            DOM.footerUserInitials.textContent = '';
         }
         return;
     }
 
-    // 🔧 FIX: После авторизации отображаем реальное имя с защитой от XSS
+    // После авторизации отображаем реальное имя с защитой от XSS
     if (DOM.footerUserName) {
         DOM.footerUserName.textContent = escapeHtml(currentUser);
     }
@@ -6164,10 +6147,10 @@ function performLogout() {
     const loginStatus = document.getElementById('loginStatus');
     if (loginStatus) loginStatus.textContent = '';
 
-    // 🔧 FIX: Сбрасываем интерфейс на "Гость" после выхода
+    // Очищаем профиль в футере после выхода
     updateFooterProfile();
 
-    // 🔧 FIX: Закрываем профиль если он был открыт
+    // Закрываем профиль если он был открыт
     if (DOM.profileModal) {
         DOM.profileModal.classList.add('hidden');
     }
