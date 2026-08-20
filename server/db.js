@@ -74,6 +74,13 @@ async function initializeDatabase() {
       ADD COLUMN IF NOT EXISTS avatar TEXT
     `);
 
+    // 🔐 E2EE: публичный ключ пользователя (ECDH P-256, raw base64)
+    // Приватный ключ НИКОГДА не покидает устройство пользователя.
+    await client.query(`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS public_key TEXT
+    `);
+
     // Таблица групп
     await client.query(`
       CREATE TABLE IF NOT EXISTS groups (
@@ -90,6 +97,25 @@ async function initializeDatabase() {
       CREATE TABLE IF NOT EXISTS group_members (
         group_id TEXT NOT NULL,
         username TEXT NOT NULL,
+        PRIMARY KEY (group_id, username),
+        FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE,
+        FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE
+      )
+    `);
+
+    // 🔐 E2EE: обёрнутые ключи групп (по одной записи на участника)
+    // Групповой AES-ключ генерируется на клиенте и НИКОГДА не передаётся серверу
+    // в открытом виде — только "обёрнутым" (зашифрованным) под ECDH-секрет
+    // конкретной пары (тот, кто выдал ключ) <-> (получатель).
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS group_key_shares (
+        group_id TEXT NOT NULL,
+        username TEXT NOT NULL,
+        wrapped_key TEXT NOT NULL,
+        nonce TEXT NOT NULL,
+        salt TEXT NOT NULL,
+        wrapped_by TEXT NOT NULL,
+        created_at BIGINT,
         PRIMARY KEY (group_id, username),
         FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE,
         FOREIGN KEY (username) REFERENCES users(username) ON DELETE CASCADE
@@ -195,8 +221,6 @@ async function saveUser(username, userData) {
 
   // 🔐 Отладка: проверяем сохранение salt и passwordHash
   console.log(`💾 saveUser: ${username}`);
-  console.log(`   passwordHash: ${userData.passwordHash ? userData.passwordHash.substring(0, 16) + '...' : 'MISSING'}`);
-  console.log(`   salt: ${userData.salt ? userData.salt.substring(0, 16) + '...' : 'MISSING'}`);
   console.log(`   isVisibleInDirectory: ${userData.isVisibleInDirectory ?? false}`);
   console.log(`   allowGroupInvite: ${userData.allowGroupInvite ?? false}`);
 
@@ -360,8 +384,14 @@ async function loadMessagesBetweenUsers(user1, user2, limit = 100) {
     id: row.id,
     sender: row.sender_username,
     privateTo: row.recipient_username,
-    text: row.encrypted_content,
+    // 🔐 Если сообщение зашифровано, encrypted_content — это шифротекст,
+    // а не читаемый текст. Отдаём его клиенту через encryptedContent/encryptionHint,
+    // чтобы клиент расшифровал его сам, используя нужный ключ переписки.
+    text: row.is_encrypted ? '[🔒 Зашифровано]' : row.encrypted_content,
     encrypted: row.is_encrypted,
+    isEncrypted: row.is_encrypted,
+    encryptedContent: row.is_encrypted ? row.encrypted_content : null,
+    encryptionHint: row.encryption_hint,
     hint: row.encryption_hint,
     replyTo: row.reply_to_id,
     files: row.files_data || [],
@@ -389,13 +419,73 @@ async function loadGroupMessages(groupId, limit = 100) {
     id: row.id,
     sender: row.sender_username,
     group: row.group_id,
-    text: row.encrypted_content,
+    groupId: row.group_id,
+    text: row.is_encrypted ? '[🔒 Зашифровано]' : row.encrypted_content,
     encrypted: row.is_encrypted,
+    isEncrypted: row.is_encrypted,
+    encryptedContent: row.is_encrypted ? row.encrypted_content : null,
+    encryptionHint: row.encryption_hint,
     hint: row.encryption_hint,
     replyTo: row.reply_to_id,
     files: row.files_data || [],
     timestamp: row.created_at
   })).reverse();
+}
+
+/**
+ * 🔐 E2EE: сохранить публичный ключ пользователя (ECDH, raw base64)
+ */
+async function savePublicKey(username, publicKey) {
+  await pool.query(
+    'UPDATE users SET public_key = $1 WHERE username = $2',
+    [publicKey, username]
+  );
+}
+
+/**
+ * 🔐 E2EE: получить публичный ключ пользователя
+ */
+async function getPublicKey(username) {
+  const result = await pool.query(
+    'SELECT public_key FROM users WHERE username = $1',
+    [username]
+  );
+  return result.rows[0]?.public_key || null;
+}
+
+/**
+ * 🔐 E2EE: сохранить/обновить обёрнутый групповой ключ для участника
+ */
+async function saveGroupKeyShare({ groupId, username, wrappedKey, nonce, salt, wrappedBy }) {
+  await pool.query(
+    `INSERT INTO group_key_shares (group_id, username, wrapped_key, nonce, salt, wrapped_by, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     ON CONFLICT (group_id, username) DO UPDATE SET
+       wrapped_key = EXCLUDED.wrapped_key,
+       nonce = EXCLUDED.nonce,
+       salt = EXCLUDED.salt,
+       wrapped_by = EXCLUDED.wrapped_by,
+       created_at = EXCLUDED.created_at`,
+    [groupId, username, wrappedKey, nonce, salt, wrappedBy, Date.now()]
+  );
+}
+
+/**
+ * 🔐 E2EE: получить обёрнутый групповой ключ для конкретного участника
+ */
+async function getGroupKeyShare(groupId, username) {
+  const result = await pool.query(
+    'SELECT wrapped_key, nonce, salt, wrapped_by FROM group_key_shares WHERE group_id = $1 AND username = $2',
+    [groupId, username]
+  );
+  if (result.rows.length === 0) return null;
+  const row = result.rows[0];
+  return {
+    wrappedKey: row.wrapped_key,
+    nonce: row.nonce,
+    salt: row.salt,
+    wrappedBy: row.wrapped_by
+  };
 }
 
 /**
@@ -656,6 +746,11 @@ module.exports = {
   loadMessagesBetweenUsers,
   loadGroupMessages,
   testConnection,
+  // 🔐 E2EE
+  savePublicKey,
+  getPublicKey,
+  saveGroupKeyShare,
+  getGroupKeyShare,
   // 🏅 Бейджики
   addUserBadge,
   removeUserBadge,

@@ -134,8 +134,6 @@ async function loadUsersFromDatabase() {
         rows.forEach(row => {
             // 🔐 Отладка: проверяем загрузку salt и passwordHash
             console.log(`📖 loadUser: ${row.username}`);
-            console.log(`   password_hash from DB: ${row.password_hash ? row.password_hash.substring(0, 16) + '...' : 'MISSING'}`);
-            console.log(`   salt from DB: ${row.salt ? row.salt.substring(0, 16) + '...' : 'MISSING'}`);
 
             users.set(row.username, {
                 userId: row.user_id,  // 🔴 НОВОЕ: загружаем user_id
@@ -151,6 +149,7 @@ async function loadUsersFromDatabase() {
                 userBadges: row.user_badges || [],  // 🔴 Пустой массив по умолчанию
                 customStatus: row.custom_status || null,
                 avatar: row.avatar || null,
+                publicKey: row.public_key || null, // 🔐 E2EE публичный ключ (ECDH)
                 status: 'offline',
                 activeChat: null,
                 devices: new Map()
@@ -680,8 +679,6 @@ async function handleRegister(ws, { username, password }, clientIp) {
         const salt = generateSalt();
         const passwordHash = hashPassword(password, salt);
 
-        console.log(`🔐 Generated salt: ${salt.substring(0, 16)}...`);
-        console.log(`🔐 Generated passwordHash: ${passwordHash.substring(0, 16)}...`);
 
         const userData = {
             passwordHash: passwordHash,
@@ -696,6 +693,7 @@ async function handleRegister(ws, { username, password }, clientIp) {
             userBadges: [],  // 🔴 ПУСТОЙ массив - бейджики только через БД
             customStatus: null,
             avatar: null,
+            publicKey: null, // 🔐 E2EE публичный ключ (устанавливается клиентом после входа)
             status: 'offline',
             activeChat: null,
             devices: new Map()
@@ -708,8 +706,6 @@ async function handleRegister(ws, { username, password }, clientIp) {
         await saveUserToDatabase(username, userData);
 
         console.log(`✅ User saved to database: ${username}`);
-        console.log(`   passwordHash: ${passwordHash.substring(0, 16)}...`);
-        console.log(`   salt: ${salt.substring(0, 16)}...`);
 
         console.log(`✅ Registered: ${username} from ${clientIp}`);
 
@@ -783,9 +779,6 @@ function handleLogin(ws, { username, password }, clientIp) {
         
         // 🔐 Отладка: проверяем salt и хеши
         console.log(`🔍 Login debug for ${username}:`);
-        console.log(`   Salt from DB: ${salt ? salt.substring(0, 16) + '...' : 'MISSING'}`);
-        console.log(`   Stored hash: ${user.passwordHash ? user.passwordHash.substring(0, 16) + '...' : 'MISSING'}`);
-        console.log(`   Computed hash: ${passwordHash ? passwordHash.substring(0, 16) + '...' : 'MISSING'}`);
         console.log(`   Hashes match: ${passwordHash === user.passwordHash}`);
         
         if (passwordHash !== user.passwordHash) {
@@ -1299,14 +1292,20 @@ function handleMessage(ws, sender, { text, privateTo, timestamp, encrypted, hint
             }
 
             // ✨ Отправляем отправителю его сообщение для добавления в активные чаты
+            // 🔧 FIX: раньше здесь терялись encryptedContent/encryptionHint/isEncrypted —
+            // из-за этого собственное зашифрованное сообщение не могло быть
+            // расшифровано у самого отправителя при отображении в UI.
             ws.send(JSON.stringify({
                 type: 'receive_message',
                 sender,
-                text: trimmedText,
+                text: messageText,
                 timestamp: message.timestamp,
                 privateTo,
-                encrypted: encrypted || false,
-                hint: hint || null,
+                encrypted: isEncrypted || encrypted || false,
+                hint: messageHint,
+                encryptedContent: encryptedContent || null,
+                encryptionHint: encryptionHint || null,
+                isEncrypted: isEncrypted || false,
                 replyTo: replyTo || null,
                 files: validFiles
             }));
@@ -1915,6 +1914,95 @@ async function handleGetUserById(ws, requestorUsername, { userId }) {
 /**
  * Создание группы
  */
+// ============================================================================
+// 🔐 E2EE: Обмен публичными ключами (ECDH P-256)
+// ============================================================================
+// Сервер НИКОГДА не видит приватные ключи и не может расшифровать сообщения —
+// он лишь хранит и раздаёт публичные ключи и "обёрнутые" групповые ключи.
+
+const MAX_PUBLIC_KEY_LENGTH = 512; // raw P-256 public key в base64 ~ 88-120 символов, оставляем запас
+
+function handlePublishPublicKey(ws, username, { publicKey }) {
+    const user = users.get(username);
+    if (!user) return;
+
+    if (!publicKey || typeof publicKey !== 'string' || publicKey.length < 16 || publicKey.length > MAX_PUBLIC_KEY_LENGTH) {
+        return ws.send(JSON.stringify({ type: 'error', message: 'Неверный формат ключа' }));
+    }
+
+    user.publicKey = publicKey;
+    db.savePublicKey(username, publicKey).catch(err => {
+        console.error('❌ savePublicKey error:', err);
+    });
+
+    ws.send(JSON.stringify({ type: 'public_key_published' }));
+}
+
+function handleGetPublicKey(ws, username, { targetUsername }) {
+    if (!targetUsername || typeof targetUsername !== 'string') {
+        return ws.send(JSON.stringify({ type: 'error', message: 'Неверный запрос ключа' }));
+    }
+
+    const targetUser = users.get(targetUsername);
+    if (!targetUser || !targetUser.publicKey) {
+        return ws.send(JSON.stringify({ type: 'public_key_missing', username: targetUsername }));
+    }
+
+    ws.send(JSON.stringify({
+        type: 'public_key',
+        username: targetUsername,
+        publicKey: targetUser.publicKey
+    }));
+}
+
+function handleGetPublicKeys(ws, username, { usernames }) {
+    if (!Array.isArray(usernames) || usernames.length === 0 || usernames.length > 200) {
+        return ws.send(JSON.stringify({ type: 'error', message: 'Неверный запрос ключей' }));
+    }
+
+    const keys = {};
+    const missing = [];
+    for (const uname of usernames) {
+        if (typeof uname !== 'string') continue;
+        const u = users.get(uname);
+        if (u && u.publicKey) {
+            keys[uname] = u.publicKey;
+        } else {
+            missing.push(uname);
+        }
+    }
+
+    ws.send(JSON.stringify({ type: 'public_keys', keys, missing }));
+}
+
+function handleGetGroupKey(ws, username, { groupId }) {
+    if (!groupId || typeof groupId !== 'string') {
+        return ws.send(JSON.stringify({ type: 'error', message: 'Неверный запрос группового ключа' }));
+    }
+
+    const group = groups.get(groupId);
+    if (!group || !group.members.has(username)) {
+        return ws.send(JSON.stringify({ type: 'error', message: 'Нет доступа к группе' }));
+    }
+
+    db.getGroupKeyShare(groupId, username).then(share => {
+        if (!share) {
+            return ws.send(JSON.stringify({ type: 'group_key_missing', groupId }));
+        }
+        ws.send(JSON.stringify({
+            type: 'group_key',
+            groupId,
+            wrappedKey: share.wrappedKey,
+            nonce: share.nonce,
+            salt: share.salt,
+            wrappedBy: share.wrappedBy
+        }));
+    }).catch(err => {
+        console.error('❌ getGroupKeyShare error:', err);
+        ws.send(JSON.stringify({ type: 'group_key_missing', groupId }));
+    });
+}
+
 function handleCreateGroup(ws, username, { name, members }) {
     const user = users.get(username);
     if (!user) {
@@ -1998,9 +2086,42 @@ function handleCreateGroup(ws, username, { name, members }) {
 }
 
 /**
+ * 🔐 E2EE: сохранение обёрнутых копий группового ключа сразу после создания
+ * группы. Групповой ID известен клиенту только после ответа 'group_created',
+ * поэтому шифрование ключа для участников — отдельный шаг сразу вслед за ним.
+ */
+function handleSetGroupKeyShares(ws, username, { groupId, memberKeys }) {
+    const group = groups.get(groupId);
+    if (!group) {
+        return ws.send(JSON.stringify({ type: 'error', message: 'Группа не найдена' }));
+    }
+    // Только создатель группы устанавливает начальные ключи (сразу после создания)
+    if (group.creator !== username) {
+        return ws.send(JSON.stringify({ type: 'error', message: 'Только создатель может установить ключи группы' }));
+    }
+    if (!Array.isArray(memberKeys)) {
+        return ws.send(JSON.stringify({ type: 'error', message: 'Неверный формат ключей' }));
+    }
+
+    for (const share of memberKeys) {
+        if (!share || typeof share !== 'object') continue;
+        const { username: shareUser, wrappedKey, nonce, salt } = share;
+        if (
+            typeof shareUser === 'string' && group.members.has(shareUser) &&
+            typeof wrappedKey === 'string' && wrappedKey.length <= 2048 &&
+            typeof nonce === 'string' && nonce.length <= 64 &&
+            typeof salt === 'string' && salt.length <= 128
+        ) {
+            db.saveGroupKeyShare({ groupId, username: shareUser, wrappedKey, nonce, salt, wrappedBy: username })
+                .catch(err => console.error('❌ saveGroupKeyShare error:', err));
+        }
+    }
+}
+
+/**
  * Добавление участника в группу
  */
-function handleAddMemberToGroup(ws, username, { groupId, member }) {
+function handleAddMemberToGroup(ws, username, { groupId, member, wrappedKey, nonce, salt }) {
     const user = users.get(username);
     if (!user) return;
 
@@ -2028,6 +2149,17 @@ function handleAddMemberToGroup(ws, username, { groupId, member }) {
     }
 
     group.members.add(member);
+
+    // 🔐 E2EE: сохраняем обёрнутую копию группового ключа для нового участника.
+    // Она подготавливается на клиенте того, кто добавляет (он уже владеет ключом группы).
+    if (
+        typeof wrappedKey === 'string' && wrappedKey.length <= 2048 &&
+        typeof nonce === 'string' && nonce.length <= 64 &&
+        typeof salt === 'string' && salt.length <= 128
+    ) {
+        db.saveGroupKeyShare({ groupId, username: member, wrappedKey, nonce, salt, wrappedBy: username })
+            .catch(err => console.error('❌ saveGroupKeyShare error:', err));
+    }
 
     console.log(`👥 ${member} added to group ${groupId} by ${username}`);
 
@@ -2311,7 +2443,10 @@ wss.on('connection', (ws, req) => {
             'message_read', 'delete_message', 'message_reaction',
             'create_group', 'add_member_to_group', 'remove_member_from_group',
             'leave_group', 'delete_group', 'get_history', 'delete_chat',
-            'update_visibility', 'update_group_invite_permission'
+            'update_visibility', 'update_group_invite_permission',
+            // 🔐 E2EE
+            'publish_public_key', 'get_public_key', 'get_public_keys',
+            'get_group_key', 'set_group_key_shares'
         ]);
 
         if (session && !session.twoFactorVerified && REQUIRES_2FA_VERIFICATION.has(data.type)) {
@@ -2379,9 +2514,25 @@ wss.on('connection', (ws, req) => {
             case '2fa_backup_codes':
                 if (session) handle2FABackupCodes(ws, username);
                 break;
+            // 🔐 E2EE: обмен ключами
+            case 'publish_public_key':
+                if (session) handlePublishPublicKey(ws, username, data);
+                break;
+            case 'get_public_key':
+                if (session) handleGetPublicKey(ws, username, data);
+                break;
+            case 'get_public_keys':
+                if (session) handleGetPublicKeys(ws, username, data);
+                break;
+            case 'get_group_key':
+                if (session) handleGetGroupKey(ws, username, data);
+                break;
             // 👥 Групповые чаты
             case 'create_group':
                 if (session) handleCreateGroup(ws, username, data);
+                break;
+            case 'set_group_key_shares':
+                if (session) handleSetGroupKeyShares(ws, username, data);
                 break;
             case 'add_member_to_group':
                 if (session) handleAddMemberToGroup(ws, username, data);
