@@ -327,6 +327,150 @@ function isCryptoSupported() {
 }
 
 // ============================================================================
+// 🔐 E2EE: ECDH ИДЕНТИЧНОСТЬ И ОБМЕН КЛЮЧАМИ (v2.0)
+// ============================================================================
+// АРХИТЕКТУРА v2.0 (исправляет фундаментальную ошибку v1.0):
+// Раньше ключ шифрования выводился из СОБСТВЕННОГО пароля отправителя —
+// получатель не мог его расшифровать в принципе (у него другой пароль).
+//
+// Теперь:
+// 1. У каждого пользователя есть постоянная пара ключей ECDH (P-256).
+//    Приватный ключ хранится ТОЛЬКО на устройстве (IndexedDB, non-extractable),
+//    публичный публикуется на сервере — сервер видит только публичные ключи.
+// 2. Для переписки 1-на-1 ключ разговора — это ECDH shared secret между
+//    приватным ключом одного человека и публичным ключом другого (симметрично).
+// 3. Для группы генерируется случайный групповой секрет, который "оборачивается"
+//    (шифруется) отдельно для каждого участника через ECDH-секрет с ним.
+//    Сервер хранит только обёрнутые копии — расшифровать их не может.
+// 4. Внутри разговора/группы для каждого сообщения выводится уникальный
+//    Message Key через HKDF (как и раньше) — компрометация одного сообщения
+//    не раскрывает остальные.
+
+const ECDH_CURVE = 'P-256';
+
+/**
+ * Генерация новой пары ключей идентичности (ECDH P-256)
+ * Приватный ключ переимпортируется как non-extractable сразу после генерации,
+ * чтобы raw-байты приватного ключа не оставались в памяти/не могли быть
+ * экспортированы кодом, если он вдруг это попробует (например, при XSS).
+ * @returns {Promise<{privateKey: CryptoKey, publicKey: CryptoKey, publicKeyBase64: string}>}
+ */
+async function generateIdentityKeyPair() {
+    const keyPair = await crypto.subtle.generateKey(
+        { name: 'ECDH', namedCurve: ECDH_CURVE },
+        true, // extractable: нужно временно, чтобы экспортировать ключи ниже
+        ['deriveKey', 'deriveBits']
+    );
+
+    const publicKeyRaw = await crypto.subtle.exportKey('raw', keyPair.publicKey);
+    const privateKeyPkcs8 = await crypto.subtle.exportKey('pkcs8', keyPair.privateKey);
+
+    // Переимпортируем приватный ключ как НЕизвлекаемый
+    const nonExtractablePrivateKey = await crypto.subtle.importKey(
+        'pkcs8',
+        privateKeyPkcs8,
+        { name: 'ECDH', namedCurve: ECDH_CURVE },
+        false,
+        ['deriveKey', 'deriveBits']
+    );
+
+    return {
+        privateKey: nonExtractablePrivateKey,
+        publicKey: keyPair.publicKey,
+        publicKeyBase64: uint8ArrayToBase64(new Uint8Array(publicKeyRaw))
+    };
+}
+
+/**
+ * Импорт публичного ключа собеседника из base64
+ * @param {string} base64 - Публичный ключ (raw, base64)
+ * @returns {Promise<CryptoKey>}
+ */
+async function importPeerPublicKey(base64) {
+    const raw = base64ToUint8Array(base64);
+    return crypto.subtle.importKey(
+        'raw',
+        raw,
+        { name: 'ECDH', namedCurve: ECDH_CURVE },
+        true,
+        []
+    );
+}
+
+/**
+ * Вывод общего ключа разговора между двумя пользователями (ECDH -> HKDF)
+ * ECDH(myPrivate, peerPublic) === ECDH(peerPrivate, myPublic), поэтому оба
+ * участника независимо получают одинаковый ключ, не передавая его по сети.
+ * Результат имеет тот же "тип", что и старый masterKey — им можно пользоваться
+ * с существующими deriveMessageKey/encryptFullMessage/decryptFullMessage.
+ * @param {CryptoKey} myPrivateKey
+ * @param {CryptoKey} peerPublicKey
+ * @returns {Promise<CryptoKey>}
+ */
+async function deriveConversationKey(myPrivateKey, peerPublicKey) {
+    return crypto.subtle.deriveKey(
+        { name: 'ECDH', public: peerPublicKey },
+        myPrivateKey,
+        { name: 'HKDF', length: CRYPTO_CONFIG.AES_KEY_LENGTH },
+        false,
+        ['deriveKey']
+    );
+}
+
+/**
+ * Генерация случайного группового секрета (используется вместо ECDH-секрета
+ * в групповых чатах, т.к. общего "пары" собеседников там нет)
+ * @returns {Promise<Uint8Array>}
+ */
+async function generateGroupSecret() {
+    return crypto.getRandomValues(new Uint8Array(32));
+}
+
+/**
+ * Импорт "сырого" группового секрета как ключа, пригодного для deriveMessageKey
+ * (аналог того, что возвращает deriveConversationKey/deriveMasterKey)
+ * @param {Uint8Array} rawSecret
+ * @returns {Promise<CryptoKey>}
+ */
+async function importGroupSecretKey(rawSecret) {
+    return crypto.subtle.importKey('raw', rawSecret, 'HKDF', false, ['deriveKey']);
+}
+
+/**
+ * "Обернуть" (зашифровать) групповой секрет для конкретного участника,
+ * используя ECDH-секрет между тем, кто оборачивает, и получателем.
+ * Сервер хранит только результат этой функции — расшифровать его не может.
+ * @param {Uint8Array} groupSecretRaw - Сырой групповой секрет
+ * @param {CryptoKey} conversationKey - ECDH-секрет (wrapper <-> получатель), из deriveConversationKey
+ * @param {string} groupId - Для привязки обёртки к конкретной группе
+ * @returns {Promise<{wrappedKey: string, nonce: string, salt: string}>}
+ */
+async function wrapGroupSecretForPeer(groupSecretRaw, conversationKey, groupId) {
+    const salt = await generateSalt();
+    const wrapKey = await deriveMessageKey(conversationKey, `group-key:${groupId}`, salt);
+    const { encrypted, nonce } = await encryptMessageAES(uint8ArrayToBase64(groupSecretRaw), wrapKey);
+    return {
+        wrappedKey: encrypted,
+        nonce,
+        salt: uint8ArrayToBase64(salt)
+    };
+}
+
+/**
+ * Развернуть (расшифровать) полученную обёртку группового ключа
+ * @param {{wrappedKey: string, nonce: string, salt: string}} wrapped
+ * @param {CryptoKey} conversationKey - ECDH-секрет (я <-> тот, кто выдал ключ)
+ * @param {string} groupId
+ * @returns {Promise<Uint8Array>} - Сырой групповой секрет
+ */
+async function unwrapGroupSecretFromPeer(wrapped, conversationKey, groupId) {
+    const salt = base64ToUint8Array(wrapped.salt);
+    const wrapKey = await deriveMessageKey(conversationKey, `group-key:${groupId}`, salt);
+    const base64Secret = await decryptMessageAES(wrapped.wrappedKey, wrapped.nonce, wrapKey);
+    return base64ToUint8Array(base64Secret);
+}
+
+// ============================================================================
 // ЭКСПОРТ
 // ============================================================================
 if (typeof module !== 'undefined' && module.exports) {
@@ -342,7 +486,15 @@ if (typeof module !== 'undefined' && module.exports) {
         uint8ArrayToBase64,
         base64ToUint8Array,
         generateMessageId,
-        isCryptoSupported
+        isCryptoSupported,
+        // 🔐 E2EE v2.0
+        generateIdentityKeyPair,
+        importPeerPublicKey,
+        deriveConversationKey,
+        generateGroupSecret,
+        importGroupSecretKey,
+        wrapGroupSecretForPeer,
+        unwrapGroupSecretFromPeer
     };
 }
 
@@ -360,6 +512,14 @@ if (typeof window !== 'undefined') {
         uint8ArrayToBase64,
         base64ToUint8Array,
         generateMessageId,
-        isCryptoSupported
+        isCryptoSupported,
+        // 🔐 E2EE v2.0
+        generateIdentityKeyPair,
+        importPeerPublicKey,
+        deriveConversationKey,
+        generateGroupSecret,
+        importGroupSecretKey,
+        wrapGroupSecretForPeer,
+        unwrapGroupSecretFromPeer
     };
 }
